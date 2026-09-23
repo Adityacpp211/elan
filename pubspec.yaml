@@ -24,3 +24,30 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf
+          weight: 300
+        - asset: assets/fonts/Manrope.ttf
+          weight: 400
+        - asset: assets/fonts/Manrope.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope.ttf
+          weight: 800
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/SpaceGrotesk.ttf
+          weight: 300
+        - asset: assets/fonts/SpaceGrotesk.ttf
+          weight: 400
+        - asset: assets/fonts/SpaceGrotesk.ttf
+          weight: 500
+        - asset: assets/fonts/SpaceGrotesk.ttf
+          weight: 600
+        - asset: assets/fonts/SpaceGrotesk.ttf
+          weight: 700
