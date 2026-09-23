@@ -1,0 +1,327 @@
+# 🎯 CardioAid Presentation Guide - 5 Members (1 Hour)
+
+**Time Allocation: ~12 minutes per person**
+
+---
+
+## 👤 **Member 1: Introduction & UI/UX** (~12 min)
+### Topic: Project Overview + Flutter Mobile App Design
+
+**Key Points to Cover:**
+
+### 1. Project Introduction (3 min)
+- CardioAid is an **Emergency Cardiac Care System**
+- Mission: *"Bridging the critical gap between cardiac emergencies and medical response"*
+- Problem Statement: Every second counts in cardiac emergencies
+- Target Area: Shravanabelagola, Karnataka
+
+### 2. Flutter UI Screens (6 min)
+- **Splash Screen** with animated logo & auto-login check
+- **Authentication** (Login/Signup) with glassmorphic design
+- **Dashboard** with 5 main feature cards:
+  - 🚨 Emergency Alert
+  - ❤️ Vital Monitoring
+  - 📋 Patient Records
+  - 📊 Medical Reports
+  - 🏥 Hospital Alerts
+- **Emergency Screen** with tier-based alert system
+- Premium **dark mode theme** with gradient accents (Red to Pink)
+
+### 3. Design Principles (3 min)
+- Responsive design:
+  - Mobile: < 600px
+  - Tablet: 600-1200px
+  - Desktop: > 1200px
+- Color Palette:
+  - Primary: `#FF1744` (Red)
+  - Background: `#121212` (Dark)
+  - Success: `#4CAF50` (Green)
+- Smooth animations throughout
+
+---
+
+## 👤 **Member 2: Backend Architecture** (~12 min)
+### Topic: Node.js Server & API Design
+
+**Key Points to Cover:**
+
+### 1. Technology Stack (3 min)
+- **Node.js** runtime with **Express.js** framework
+- RESTful API architecture
+- **JWT** (JSON Web Token) for authentication
+- **bcryptjs** for password hashing (10 rounds)
+- **Axios** for HTTP requests
+
+### 2. API Endpoints (6 min)
+
+#### Authentication Routes
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/auth/register` | Register new user |
+| `POST` | `/api/auth/login` | Login user |
+| `POST` | `/api/auth/location` | Update user location |
+
+#### Hospital Routes
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/hospitals/nearby` | Find nearby hospitals by GPS |
+
+#### Payment Routes
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/payments/create-order` | Create Razorpay order |
+| `POST` | `/api/payments/verify` | Verify payment |
+
+#### Alert Routes
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/alerts/send` | Send emergency alert |
+| `GET` | `/api/alerts/history` | Get alert history |
+
+### 3. Security Features (3 min)
+- Bearer token authentication on protected routes
+- Password encryption with bcrypt
+- CORS enabled for cross-origin requests
+- Token expiry management
+
+---
+
+## 👤 **Member 3: Database & Models** (~12 min)
+### Topic: Data Architecture & Storage
+
+**Key Points to Cover:**
+
+### 1. Data Models (5 min)
+
+#### User Model
+```javascript
+{
+  id: String,
+  name: String,
+  email: String,
+  password: String (hashed),
+  latitude: Number,
+  longitude: Number
+}
+```
+
+#### Hospital Model
+```javascript
+{
+  id: String,
+  name: String,
+  address: String,
+  phone: String,
+  emergencyEmail: String,
+  latitude: Number,
+  longitude: Number
+}
+```
+
+#### Patient Record Model
+```javascript
+{
+  id: String,
+  name: String,
+  age: Number,
+  gender: String,
+  bloodType: String,
+  condition: String,
+  emergencyContact: String,
+  allergies: Array,
+  medications: Array
+}
+```
+
+### 2. Hospital Network (4 min)
+4 configured hospitals near **Shravanabelagola, Karnataka**:
+
+1. **Bahubali Children Hospital**
+   - SH-8, Chalya Post, Shravanabelagola
+
+2. **Shravanabelagola Government Hospital**
+   - Shravanabelagola Main Road
+
+3. **Swayam Sevak Nagara Hospital**
+   - Shravanabelagola area
+
+4. **Primary Health Centre (PHC) - Chalya**
+   - Chalya/Nirisare Road
+
+### 3. Local Storage (3 min)
+- **Shared Preferences** for persistent user data
+- Digital wallet balance management
+- Alert history stored locally
+- Secure encrypted storage
+
+---
+
+## 👤 **Member 4: Emergency System & Notifications** (~12 min)
+### Topic: Core Emergency Alert Flow + Firebase FCM
+
+**Key Points to Cover:**
+
+### 1. Tiered Alert System (4 min)
+
+| Tier | Cost | Hospitals Notified |
+|------|------|-------------------|
+| **Tier 1** | ₹1 | 1 nearest hospital |
+| **Tier 2** | ₹2 | 3 nearest hospitals |
+| **Tier 3** | ₹3 | All nearby (up to 10) |
+
+### 2. Emergency Alert Flow (5 min)
+
+```
+Step 1: User Opens Emergency Screen
+    ↓
+Step 2: Select Alert Tier (1, 2, or 3)
+    ↓
+Step 3: Confirm GPS Location (auto-detected)
+    ↓
+Step 4: Add Custom Message (optional)
+    ↓
+Step 5: Check Wallet Balance
+    ↓
+Step 6: If insufficient → Razorpay Payment
+    ↓
+Step 7: Create Alert Record in Database
+    ↓
+Step 8: Find Nearby Hospitals (by proximity)
+    ↓
+Step 9: Send Email Alerts to Hospitals
+    ↓
+Step 10: Send FCM Push Notifications
+    ↓
+Step 11: Display Confirmation to User
+    ↓
+Step 12: Update Alert History
+```
+
+### 3. Firebase Cloud Messaging (FCM) (3 min)
+- **Push notifications** sent to hospital devices
+- Multi-channel notification system:
+  - Email alerts
+  - FCM push notifications
+- Real-time alert delivery (< 30 seconds)
+- Firebase Admin SDK integration
+
+---
+
+## 👤 **Member 5: Payment Integration & Demo** (~12 min)
+### Topic: Razorpay + Vital Monitoring + Live Demonstration
+
+**Key Points to Cover:**
+
+### 1. Payment System (4 min)
+- **Razorpay** integration for secure payments
+- Digital wallet feature for quick transactions:
+  - Pre-load wallet balance
+  - Instant deduction during emergencies
+- Payment verification flow:
+  - Create order → Process payment → Verify signature
+- Secure payment gateway
+
+### 2. Vital Monitoring (3 min)
+Real-time vital signs monitoring:
+
+| Vital | Unit | Status Colors |
+|-------|------|---------------|
+| Heart Rate | BPM | 🟢 Normal / 🟡 Warning / 🔴 Critical |
+| Blood Pressure | mmHg | 🟢 Normal / 🟡 Warning / 🔴 Critical |
+| Oxygen Saturation | SpO2% | 🟢 Normal / 🟡 Warning / 🔴 Critical |
+| Temperature | °C | 🟢 Normal / 🟡 Warning / 🔴 Critical |
+| Respiratory Rate | breaths/min | 🟢 Normal / 🟡 Warning / 🔴 Critical |
+
+### 3. Live Demo (5 min)
+**Demo Flow:**
+1. ✅ Launch app → Show splash screen
+2. ✅ Login with demo credentials
+3. ✅ Navigate through Dashboard cards
+4. ✅ Show Vital Monitoring screen
+5. ✅ Demonstrate Emergency Alert flow
+6. ✅ Show Alert History
+
+---
+
+## ⏰ **Time Schedule**
+
+| Time | Member | Topic |
+|------|--------|-------|
+| **0:00 - 0:12** | Member 1 | Introduction + UI/UX Design |
+| **0:12 - 0:24** | Member 2 | Backend Architecture & APIs |
+| **0:24 - 0:36** | Member 3 | Database & Data Models |
+| **0:36 - 0:48** | Member 4 | Emergency System & Notifications |
+| **0:48 - 1:00** | Member 5 | Payments + Demo + Q&A |
+
+---
+
+## 🏆 **Key Differentiators to Highlight**
+
+| Feature | CardioAid | Traditional Methods |
+|---------|-----------|---------------------|
+| Response Time | **< 30 seconds** | Several minutes |
+| Hospital Selection | **Automatic (GPS proximity)** | Manual lookup |
+| Payment | **Digital wallet + Razorpay** | N/A |
+| Location Sharing | **Real-time GPS** | Address-based |
+| Notifications | **Multi-channel (Email + FCM)** | Phone call only |
+| Records | **Digital history** | Paper-based |
+
+---
+
+## 📊 **System Architecture Diagram**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    CardioAid Ecosystem                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   ┌─────────────┐         ┌─────────────┐                  │
+│   │   Flutter   │ ◄─────► │   Node.js   │                  │
+│   │  Mobile App │   REST  │   Backend   │                  │
+│   └─────────────┘   API   └──────┬──────┘                  │
+│         │                        │                         │
+│         │                        ▼                         │
+│         │               ┌─────────────────┐                │
+│         │               │   Firebase FCM  │                │
+│         │               │  (Push Notifs)  │                │
+│         │               └────────┬────────┘                │
+│         │                        │                         │
+│         ▼                        ▼                         │
+│   ┌─────────────┐       ┌─────────────────┐               │
+│   │  Razorpay   │       │    Hospitals    │               │
+│   │  Payments   │       │  (Email Alerts) │               │
+│   └─────────────┘       └─────────────────┘               │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🎤 **Closing Statement**
+
+> *"Every second counts in a cardiac emergency. CardioAid ensures those seconds are never wasted."*
+
+### Summary Points:
+✅ **Reduces** emergency response time  
+✅ **Automates** hospital notification  
+✅ **Provides** real-time location sharing  
+✅ **Enables** tiered alert system for flexibility  
+✅ **Maintains** digital records of all emergencies  
+✅ **Integrates** payment processing seamlessly  
+
+---
+
+## 💡 **Tips for Presentation**
+
+1. **Practice transitions** between members
+2. **Keep slides minimal** - talk more, read less
+3. **Make eye contact** with the audience
+4. **Be ready for Q&A** at the end
+5. **Have the app ready** for live demo
+
+---
+
+**Good luck with your presentation! 🚀**
+
+*CardioAid - Emergency Cardiac Care System*
+*Version 1.0.0 | Built with Flutter & Node.js*
