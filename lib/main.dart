@@ -7,10 +7,12 @@ import 'dart:async';
 import 'models.dart';
 import 'theme.dart';
 import 'screens.dart';
+import 'services/connection_status.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AuthService().checkAutoLogin();
+  ConnectionStatus().startMonitoring();
   runApp(const CardioAidApp());
 }
 

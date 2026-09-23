@@ -93,6 +93,48 @@ async function initializeDatabase() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS patients (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      age INTEGER NOT NULL,
+      blood_type TEXT NOT NULL,
+      condition TEXT NOT NULL,
+      admission_date TEXT NOT NULL,
+      room_number TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS vitals (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      patient_id TEXT NOT NULL,
+      patient_name TEXT NOT NULL,
+      heart_rate INTEGER NOT NULL,
+      blood_pressure TEXT NOT NULL,
+      temperature REAL NOT NULL,
+      oxygen_level INTEGER NOT NULL,
+      timestamp TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      patient_name TEXT NOT NULL,
+      report_type TEXT NOT NULL,
+      date TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      doctor TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   saveDatabase();
   console.log('✅ Database initialized successfully');
 

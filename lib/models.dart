@@ -5,14 +5,18 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'services/api_service.dart';
+
 // ==================== MODELS ====================
 
 class User {
+  final String? id;
   final String name;
   final String email;
   final String password;
 
   User({
+    this.id,
     required this.name,
     required this.email,
     required this.password,
@@ -198,8 +202,15 @@ class AuthService {
   AuthService._internal();
 
   final List<User> _users = [];
+  final ApiService _api = ApiService();
   User? _currentLoggedInUser;
   late SharedPreferences _prefs;
+
+  static const _kToken = 'authToken';
+  static const _kUserId = 'authUserId';
+  static const _kEmail = 'lastEmail';
+  static const _kName = 'lastUserName';
+  static const _kPassword = 'lastPassword';
 
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
@@ -208,18 +219,19 @@ class AuthService {
   // Check if user is already logged in
   Future<void> checkAutoLogin() async {
     await _initPrefs();
-    final email = _prefs.getString('lastEmail');
-    final name = _prefs.getString('lastUserName');
-    final password = _prefs.getString('lastPassword');
+    final token = _prefs.getString(_kToken);
+    final userId = _prefs.getString(_kUserId);
+    final email = _prefs.getString(_kEmail);
+    final name = _prefs.getString(_kName);
 
-    if (email != null && name != null && password != null) {
-      // Reconstruct user from stored credentials
-      _currentLoggedInUser = User(name: name, email: email, password: password);
-      // Add to users list for consistency
-      if (!_users
-          .any((user) => user.email.toLowerCase() == email.toLowerCase())) {
-        _users.add(_currentLoggedInUser!);
+    if (email != null && name != null) {
+      if (token != null) {
+        // Restore backend session; on next contact with the server we will
+        // re-validate and can hard-refresh the profile if needed.
+        ApiService().setAuthToken(token, userId ?? '');
       }
+      _currentLoggedInUser =
+          User(id: userId, name: name, email: email, password: '');
     }
   }
 
@@ -243,20 +255,35 @@ class AuthService {
       return 'Passwords do not match';
     }
 
-    // Check if email already exists
+    // Try server-side registration first (source of truth)
+    final response = await _api.register(
+      name: name.trim(),
+      email: email.trim(),
+      password: password,
+    );
+
+    if (response.success) {
+      await _completeLoginFromApi(response.data);
+      return null;
+    }
+
+    // Backend reachable and rejected the registration — surface the error.
+    if (!_isNetworkError(response.error)) {
+      return response.error ?? 'Registration failed';
+    }
+
+    // Offline fallback: register locally so the demo keeps working.
     if (_users.any((user) => user.email.toLowerCase() == email.toLowerCase())) {
       return 'Email already registered';
     }
 
-    // Create new user
-    final newUser = User(name: name, email: email, password: password);
+    final newUser = User(name: name.trim(), email: email.trim(), password: password);
     _users.add(newUser);
 
-    // Store user information
     await _initPrefs();
-    await _prefs.setString('lastEmail', email);
-    await _prefs.setString('lastUserName', name);
-    await _prefs.setString('lastPassword', password);
+    await _prefs.setString(_kEmail, email.trim());
+    await _prefs.setString(_kName, name.trim());
+    await _prefs.setString(_kPassword, password);
 
     _currentLoggedInUser = newUser;
     return null; // Success
@@ -271,6 +298,20 @@ class AuthService {
       return 'Password is required';
     }
 
+    // Try server-side login first (source of truth)
+    final response = await _api.login(email: email.trim(), password: password);
+
+    if (response.success) {
+      await _completeLoginFromApi(response.data);
+      return null;
+    }
+
+    // Backend reachable and rejected the credentials — surface the error.
+    if (!_isNetworkError(response.error)) {
+      return response.error ?? 'Login failed';
+    }
+
+    // Offline fallback: check locally registered accounts.
     final user = _users.firstWhere(
       (user) => user.email.toLowerCase() == email.toLowerCase(),
       orElse: () => User(name: '', email: '', password: ''),
@@ -284,23 +325,64 @@ class AuthService {
       return 'Incorrect password';
     }
 
-    // Store login info
     await _initPrefs();
-    await _prefs.setString('lastEmail', email);
-    await _prefs.setString('lastUserName', user.name);
-    await _prefs.setString('lastPassword', password);
+    await _prefs.setString(_kEmail, email.trim());
+    await _prefs.setString(_kName, user.name);
+    await _prefs.setString(_kPassword, password);
 
     _currentLoggedInUser = user;
     return null; // Success
   }
 
+  Future<void> _completeLoginFromApi(dynamic data) async {
+    final userData = data['user'] ?? {};
+    final token = data['token'] as String?;
+
+    final user = User(
+      id: (userData['id'] as String?) ?? '',
+      name: (userData['name'] as String?) ?? 'User',
+      email: (userData['email'] as String?) ?? '',
+      password: '',
+    );
+
+    if (!_users.any(
+        (existing) => existing.email.toLowerCase() == user.email.toLowerCase())) {
+      _users.add(user);
+    }
+
+    if (token != null) {
+      ApiService().setAuthToken(token, user.id ?? '');
+    }
+
+    await _initPrefs();
+    if (token != null) {
+      await _prefs.setString(_kToken, token);
+    }
+    if (user.id != null) {
+      await _prefs.setString(_kUserId, user.id!);
+    }
+    await _prefs.setString(_kEmail, user.email);
+    await _prefs.setString(_kName, user.name);
+    await _prefs.remove(_kPassword);
+
+    _currentLoggedInUser = user;
+  }
+
+  bool _isNetworkError(String? error) {
+    if (error == null) return false;
+    return error.startsWith('Network error');
+  }
+
   // Logout user
   Future<void> logout() async {
     _currentLoggedInUser = null;
+    ApiService().clearAuth();
     await _initPrefs();
-    await _prefs.remove('lastEmail');
-    await _prefs.remove('lastPassword');
-    await _prefs.remove('lastUserName');
+    await _prefs.remove(_kToken);
+    await _prefs.remove(_kUserId);
+    await _prefs.remove(_kEmail);
+    await _prefs.remove(_kPassword);
+    await _prefs.remove(_kName);
   }
 
   bool _isValidEmail(String email) {

@@ -3,6 +3,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'services/connection_status.dart';
+
 // ==================== COLOR TOKENS ====================
 
 abstract final class AppColors {
@@ -531,6 +533,35 @@ class StatusBadge extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Live backend connectivity indicator. Pings the server on a timer and lets
+/// the user force a re-check by tapping.
+class ServerStatusPill extends StatelessWidget {
+  const ServerStatusPill({super.key, this.syncing = false});
+
+  /// Whether a backend session is active (shown when the server is online).
+  final bool syncing;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ServerStatus>(
+      valueListenable: ConnectionStatus(),
+      builder: (context, status, _) {
+        final (label, color) = switch (status) {
+          ServerStatus.checking => ('Checking…', AppColors.sky),
+          ServerStatus.online =>
+            (syncing ? 'Online · synced' : 'Server online', AppColors.success),
+          ServerStatus.offline => ('Offline · local', AppColors.warning),
+        };
+
+        return GestureDetector(
+          onTap: ConnectionStatus().refresh,
+          child: StatusBadge(label: label, color: color),
+        );
+      },
     );
   }
 }

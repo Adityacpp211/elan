@@ -1,8 +1,11 @@
 // CardioAid — Screens
 // Redesigned with the AppTheme design system.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
@@ -14,6 +17,20 @@ import 'services/api_service.dart';
 void open(BuildContext context, Widget page) {
   Navigator.of(context).push(
     PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 340),
+      reverseTransitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (_, animation, __) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        child: page,
+      ),
+    ),
+  );
+}
+
+/// Push a page and wait for it to pop, returning the result (if any).
+Future<T?> openForResult<T>(BuildContext context, Widget page) {
+  return Navigator.of(context).push<T>(
+    PageRouteBuilder<T>(
       transitionDuration: const Duration(milliseconds: 340),
       reverseTransitionDuration: const Duration(milliseconds: 260),
       pageBuilder: (_, animation, __) => FadeTransition(
@@ -78,6 +95,8 @@ class _AuthShell extends StatelessWidget {
                   const SizedBox(height: 28),
                   child,
                   const SizedBox(height: 20),
+                  const Center(child: ServerStatusPill()),
+                  const SizedBox(height: 4),
                 ],
               ),
             ),
@@ -493,6 +512,8 @@ class _DashboardState extends State<Dashboard> {
                       ],
                     ),
                   ),
+                  const ServerStatusPill(syncing: true),
+                  const SizedBox(width: AppSpace.md),
                   GestureDetector(
                     onTap: () => open(context, const UserProfileScreen()),
                     child: Container(
@@ -1079,48 +1100,115 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     if (!mounted) return;
     setState(() => _isSendingAlert = true);
 
-    try {
-      // Deduct from wallet
-      setState(() {
-        _walletBalance -= priceValue;
-      });
-      await _saveWalletBalance();
+    bool walletDeducted = false;
 
-      // Generate local alert ID
+    try {
+      // Generate a local fallback alert ID
       _currentAlertId = 'ALERT_${DateTime.now().millisecondsSinceEpoch}';
 
-      // Try to send via backend API (optional - works offline too)
+      // Try to run the full backend flow (create order → Razorpay → verify → send)
+      final orderResponse = await _api.createPaymentOrder(
+        tier: _selectedCharge,
+        latitude: _userLocation!.latitude,
+        longitude: _userLocation!.longitude,
+        symptoms: _selectedSymptoms.join(', '),
+        message: _messageController.text,
+      );
+
       int hospitalsNotified = hospitalCount;
-      try {
-        final orderResponse = await _api.createPaymentOrder(
-          tier: _selectedCharge,
-          latitude: _userLocation!.latitude,
-          longitude: _userLocation!.longitude,
-          symptoms: _selectedSymptoms.join(', '),
-          message: _messageController.text,
-        );
+      bool dispatchConfirmed = false;
 
-        if (orderResponse.success) {
-          _currentAlertId = orderResponse.data['alertId'];
-          final orderId = orderResponse.data['order']['id'];
+      if (orderResponse.success) {
+        _currentAlertId = orderResponse.data['alertId'];
+        final orderId = orderResponse.data['order']['id'];
+        final amountPaise = orderResponse.data['order']['amount'] ?? 0;
+        final keyId = orderResponse.data['razorpayKeyId'] ?? '';
+        final isMockGateway =
+            keyId == 'test_key' || orderId.startsWith('order_mock_');
 
-          // Auto-verify payment (wallet already deducted)
-          await _api.verifyPayment(
+        if (!isMockGateway) {
+          // Real payment gateway configured — open Razorpay checkout.
+          final user = AuthService().currentLoggedInUser;
+          final payment = await _startRazorpayCheckout(
+            keyId: keyId,
+            orderId: orderId as String,
+            amountPaise: amountPaise as int,
+            email: user?.email ?? '',
+            name: user?.name ?? 'CardioAid User',
+          );
+
+          if (!payment.success) {
+            // Payment cancelled or failed — nothing deducted.
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(payment.error ?? 'Payment was not completed'),
+                ),
+              );
+            }
+            return;
+          }
+
+          final verify = await _api.verifyPayment(
             orderId: orderId,
+            paymentId: payment.paymentId!,
+            signature: payment.signature!,
+            alertId: _currentAlertId!,
+          );
+
+          if (!verify.success) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(verify.error ?? 'Verification failed')),
+              );
+            }
+            return;
+          }
+          dispatchConfirmed = true;
+        } else {
+          // Mock gateway (no Razorpay keys) — settle via wallet credit.
+          setState(() {
+            _walletBalance -= priceValue;
+          });
+          await _saveWalletBalance();
+          walletDeducted = true;
+
+          await _api.verifyPayment(
+            orderId: orderId as String,
             paymentId: 'wallet_${DateTime.now().millisecondsSinceEpoch}',
             signature: 'wallet_payment',
             alertId: _currentAlertId!,
           );
+          dispatchConfirmed = true;
+        }
 
+        if (dispatchConfirmed) {
           final alertResponse = await _api.sendEmergencyAlert(_currentAlertId!);
           if (alertResponse.success) {
             hospitalsNotified =
                 alertResponse.data['hospitalsNotified'] ?? hospitalCount;
           }
         }
-      } catch (e) {
-        // Backend unavailable — that's OK, wallet payment still processed locally
-        debugPrint('Backend unavailable, using local processing: $e');
+      } else {
+        // Backend unreachable/rejected — fall back to pure local processing
+        // using wallet credit so the demo still works offline.
+        final isNetworkIssue = (orderResponse.error ?? '')
+            .startsWith('Network error');
+        if (!isNetworkIssue) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(orderResponse.error ?? 'Alert failed')),
+            );
+          }
+          return;
+        }
+
+        setState(() {
+          _walletBalance -= priceValue;
+        });
+        await _saveWalletBalance();
+        walletDeducted = true;
+        hospitalsNotified = hospitalCount;
       }
 
       // Also save to local database
@@ -1183,7 +1271,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                'ALERT ID  ${_currentAlertId?.substring(0, 8).toUpperCase()}',
+                'ALERT ID  ${_currentAlertId!.substring(0, 8).toUpperCase()}',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: AppColors.textMuted, fontFamily: AppFonts.display),
               ),
@@ -1209,19 +1297,78 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         _currentAlertId = null;
       });
     } catch (e) {
-      // Refund wallet on error
-      setState(() {
-        _walletBalance += priceValue;
-      });
-      await _saveWalletBalance();
-
+      debugPrint('Emergency dispatch error: $e');
+      if (walletDeducted) {
+        setState(() {
+          _walletBalance += priceValue;
+        });
+        await _saveWalletBalance();
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text('Something went wrong: $e')),
       );
     } finally {
       if (mounted) setState(() => _isSendingAlert = false);
     }
+  }
+
+  /// Opens the Razorpay checkout and resolves once the sheet is closed.
+  Future<_RazorpayPaymentResult> _startRazorpayCheckout({
+    required String keyId,
+    required String orderId,
+    required int amountPaise,
+    required String email,
+    required String name,
+  }) async {
+    final completer = Completer<_RazorpayPaymentResult>();
+    final razorpay = Razorpay();
+
+    razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, (payload) {
+      final payment = payload as PaymentSuccessResponse;
+      if (!completer.isCompleted) {
+        completer.complete(_RazorpayPaymentResult(
+          success: true,
+          paymentId: payment.paymentId,
+          signature: payment.signature,
+        ));
+      }
+    });
+
+    razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, (payload) {
+      final error = payload as PaymentFailureResponse;
+      if (!completer.isCompleted) {
+        completer.complete(_RazorpayPaymentResult(
+          success: false,
+          error: error.message ?? 'Payment failed',
+        ));
+      }
+    });
+
+    // External wallet selected — the success/error event still arrives next.
+    razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, (_) {});
+
+    razorpay.open({
+      'key': keyId,
+      'order_id': orderId,
+      'amount': amountPaise,
+      'currency': 'INR',
+      'name': 'CardioAid',
+      'description': 'Emergency cardiac alert',
+      'prefill': {
+        if (email.isNotEmpty) 'email': email,
+        if (name.isNotEmpty) 'name': name,
+      },
+      'theme': {'color': '#B72236'},
+    });
+
+    return completer.future.timeout(
+      const Duration(minutes: 3),
+      onTimeout: () => _RazorpayPaymentResult(
+        success: false,
+        error: 'Payment timed out',
+      ),
+    );
   }
 
   @override
@@ -1665,6 +1812,17 @@ class HospitalAlertScreen extends StatefulWidget {
 
 class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
   final _db = DatabaseService();
+  final _api = ApiService();
+
+  List<HospitalAlert> _remoteAlerts = [];
+  bool _syncing = false;
+  String? _syncError;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncAlertHistory();
+  }
 
   String _formatTime(DateTime dateTime) {
     final now = DateTime.now();
@@ -1675,9 +1833,86 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
   }
 
+  Future<void> _syncAlertHistory() async {
+    if (!_api.isAuthenticated) return;
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
+
+    final response = await _api.getAlertHistory();
+
+    if (!mounted) return;
+    setState(() => _syncing = false);
+
+    if (response.success) {
+      final alerts = (response.data?['alerts'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(_remoteAlertToLocal)
+          .expand((entries) => entries)
+          .toList();
+      setState(() => _remoteAlerts = alerts);
+    } else {
+      setState(() => _syncError = response.error);
+    }
+  }
+
+  List<HospitalAlert> _remoteAlertToLocal(Map<String, dynamic> alert) {
+    final symptoms = ((alert['symptoms'] as String?) ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final message = (alert['message'] as String?) ?? '';
+    final tier = (alert['tier'] as int?) ?? 1;
+    final createdAt = DateTime.tryParse((alert['createdAt'] as String?) ?? '') ??
+        DateTime.now();
+    final lat = (alert['location'] is Map
+            ? (alert['location']!['latitude'] as num?)?.toStringAsFixed(4)
+            : null) ??
+        '—';
+    final lng = (alert['location'] is Map
+            ? (alert['location']!['longitude'] as num?)?.toStringAsFixed(4)
+            : null) ??
+        '—';
+    final locationText = '$lat, $lng';
+
+    final hospitals =
+        (alert['hospitals'] as List? ?? []).whereType<Map<String, dynamic>>();
+    if (hospitals.isEmpty) {
+      return [
+        HospitalAlert(
+          id: (alert['id'] as String?) ?? '',
+          hospitalId: '',
+          hospitalName: 'All nearby care units',
+          timestamp: createdAt,
+          symptoms: symptoms,
+          message: message,
+          chargeLevels: tier,
+          messageDelivered: true,
+          userLocation: locationText,
+        ),
+      ];
+    }
+
+    return hospitals
+        .map((hospital) => HospitalAlert(
+              id: '${alert['id']}_${hospital['name']}',
+              hospitalId: (hospital['name'] as String?) ?? '',
+              hospitalName: (hospital['name'] as String?) ?? 'Care unit',
+              timestamp: createdAt,
+              symptoms: symptoms,
+              message: message,
+              chargeLevels: tier,
+              messageDelivered: hospital['notificationSent'] == true,
+              userLocation: locationText,
+            ))
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final alerts = _db.hospitalAlerts;
+    final alerts = [..._remoteAlerts, ..._db.hospitalAlerts];
 
     return AppBackground(
       glow: AppColors.alert,
@@ -1688,13 +1923,40 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
               eyebrow: 'Dispatch log',
               title: 'Hospital alerts',
               onBack: () => Navigator.of(context).pop(),
-              trailing: alerts.isEmpty
-                  ? null
-                  : StatusBadge(
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_syncing) ...
+                      [
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppColors.alert),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                  IconButton(
+                    tooltip: 'Sync from server',
+                    onPressed: _syncing ? null : _syncAlertHistory,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    color: AppColors.alert,
+                  ),
+                  if (alerts.isNotEmpty)
+                    StatusBadge(
                       label: '$alerts.length',
                       color: AppColors.alert,
                     ),
+                ],
+              ),
             ),
+            if (_syncError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
+                child: ErrorBanner(
+                    message: 'Could not sync alerts from server'),
+              ),
             Expanded(
               child: alerts.isEmpty
                   ? EmptyState(
@@ -2003,14 +2265,70 @@ class UserProfileScreen extends StatelessWidget {
 
 // ==================== MONITORING ====================
 
-class MonitoringScreen extends StatelessWidget {
-  MonitoringScreen({super.key});
+class MonitoringScreen extends StatefulWidget {
+  const MonitoringScreen({super.key});
 
+  @override
+  State<MonitoringScreen> createState() => _MonitoringScreenState();
+}
+
+class _MonitoringScreenState extends State<MonitoringScreen> {
   final _db = DatabaseService();
+  final _api = ApiService();
+
+  final List<VitalSigns> _remoteVitals = [];
+  bool _syncing = false;
+  String? _syncError;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncVitals();
+  }
+
+  Future<void> _syncVitals() async {
+    if (!_api.isAuthenticated) return;
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
+
+    final response = await _api.getVitals();
+
+    if (!mounted) return;
+    setState(() => _syncing = false);
+
+    if (response.success) {
+      final vitals = (response.data?['vitals'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(_remoteVitalToLocal)
+          .toList()
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      setState(() {
+        _remoteVitals
+          ..clear()
+          ..addAll(vitals);
+      });
+    } else {
+      setState(() => _syncError = response.error);
+    }
+  }
+
+  VitalSigns _remoteVitalToLocal(Map<String, dynamic> v) {
+    return VitalSigns(
+      patientId: (v['patient_id'] as String?) ?? '',
+      patientName: (v['patient_name'] as String?) ?? 'Unknown patient',
+      heartRate: (v['heart_rate'] as num?)?.toInt() ?? 0,
+      bloodPressure: (v['blood_pressure'] as String?) ?? '—',
+      temperature: (v['temperature'] as num?)?.toDouble() ?? 0,
+      oxygenLevel: (v['oxygen_level'] as num?)?.toInt() ?? 0,
+      timestamp: (v['timestamp'] as String?) ?? '',
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final vitals = _db.vitalSigns;
+    final vitals = [..._remoteVitals, ..._db.vitalSigns];
 
     return AppBackground(
       glow: AppColors.success,
@@ -2021,11 +2339,50 @@ class MonitoringScreen extends StatelessWidget {
               eyebrow: 'Telemetry',
               title: 'Monitoring & tests',
               onBack: () => Navigator.of(context).pop(),
-              trailing: StatusBadge(
-                label: '${vitals.length}',
-                color: AppColors.success,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_syncing)
+                    ...[
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.success),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                  IconButton(
+                    tooltip: 'Sync from server',
+                    onPressed: _syncing ? null : _syncVitals,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    color: AppColors.success,
+                  ),
+                  IconButton(
+                    tooltip: 'Add reading',
+                    onPressed: () async {
+                      final result = await openForResult<bool>(
+                          context, const AddVitalScreen());
+                      if (result == true && mounted) _syncVitals();
+                    },
+                    icon: const Icon(Icons.add_rounded, size: 20),
+                    color: AppColors.success,
+                  ),
+                  if (vitals.isNotEmpty)
+                    StatusBadge(
+                      label: '${vitals.length}',
+                      color: AppColors.success,
+                    ),
+                ],
               ),
             ),
+            if (_syncError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
+                child: ErrorBanner(
+                    message: 'Could not sync readings from server'),
+              ),
             Expanded(
               child: vitals.isEmpty
                   ? const EmptyState(
@@ -2038,8 +2395,13 @@ class MonitoringScreen extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(
                           AppSpace.xl, AppSpace.sm, AppSpace.xl, 32),
                       itemCount: vitals.length,
-                      itemBuilder: (context, index) =>
-                          _VitalsCard(vitals: vitals[index]),
+                      itemBuilder: (context, index) => _VitalsCard(
+                        vitals: vitals[index],
+                        onTap: () => open(
+                          context,
+                          VitalDetailScreen(vitals: vitals[index]),
+                        ),
+                      ),
                     ),
             ),
           ],
@@ -2050,8 +2412,9 @@ class MonitoringScreen extends StatelessWidget {
 }
 
 class _VitalsCard extends StatelessWidget {
-  const _VitalsCard({required this.vitals});
+  const _VitalsCard({required this.vitals, this.onTap});
   final VitalSigns vitals;
+  final VoidCallback? onTap;
 
   Color _statusColor(BuildContext context) {
     if (vitals.heartRate > 120 ||
@@ -2114,6 +2477,7 @@ class _VitalsCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.only(bottom: 12),
       radius: AppRadius.md,
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2156,12 +2520,447 @@ class _VitalsCard extends StatelessWidget {
   }
 }
 
+class VitalDetailScreen extends StatelessWidget {
+  const VitalDetailScreen({super.key, required this.vitals});
+  final VitalSigns vitals;
+
+  Color get _statusColor {
+    if (vitals.heartRate > 120 ||
+        vitals.heartRate < 60 ||
+        vitals.oxygenLevel < 90 ||
+        vitals.temperature > 99.5) {
+      return AppColors.brand;
+    }
+    if (vitals.heartRate > 100 || vitals.oxygenLevel < 95) {
+      return AppColors.warning;
+    }
+    return AppColors.success;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _statusColor;
+    return AppBackground(
+      glow: color,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Telemetry record',
+              title: vitals.patientName,
+              onBack: () => Navigator.of(context).pop(),
+              trailing: StatusBadge(label: vitals.timestamp, color: color),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Vital signs',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _VitalDetailTile(
+                          icon: Icons.favorite_rounded,
+                          label: 'HEART RATE',
+                          value: '${vitals.heartRate}',
+                          unit: 'bpm',
+                          color: vitals.heartRate > 100
+                              ? AppColors.brand
+                              : AppColors.success,
+                        ),
+                        const SizedBox(width: 12),
+                        _VitalDetailTile(
+                          icon: Icons.air_rounded,
+                          label: 'OXYGEN',
+                          value: '${vitals.oxygenLevel}',
+                          unit: '%',
+                          color: vitals.oxygenLevel < 95
+                              ? AppColors.warning
+                              : AppColors.success,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _VitalDetailTile(
+                          icon: Icons.thermostat_rounded,
+                          label: 'TEMPERATURE',
+                          value: vitals.temperature.toStringAsFixed(1),
+                          unit: '°F',
+                          color: vitals.temperature > 99.5
+                              ? AppColors.brand
+                              : AppColors.success,
+                        ),
+                        const SizedBox(width: 12),
+                        _VitalDetailTile(
+                          icon: Icons.compress_rounded,
+                          label: 'BLOOD PRESS',
+                          value: vitals.bloodPressure,
+                          unit: 'mmHg',
+                          color: AppColors.success,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    SurfaceCard(
+                      padding: const EdgeInsets.all(16),
+                      radius: AppRadius.md,
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_pin_circle_rounded,
+                              size: 20, color: color),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text('Patient ID  •  ${vitals.patientId}',
+                                style: Theme.of(context).textTheme.bodyMedium),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VitalDetailTile extends StatelessWidget {
+  const _VitalDetailTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.color,
+  });
+  final IconData icon;
+  final String label;
+  final String value;
+  final String unit;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.ink.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 15, color: color),
+                const SizedBox(width: 6),
+                Text(label,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: AppColors.textMuted,
+                          letterSpacing: 1.0,
+                        )),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _RecordedValueText(value: value, unit: unit, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordedValueText extends StatelessWidget {
+  const _RecordedValueText({
+    required this.value,
+    required this.unit,
+    required this.color,
+  });
+  final String value;
+  final String unit;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          fontFamily: AppFonts.display,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+        children: [
+          TextSpan(text: value),
+          TextSpan(
+            text: ' $unit',
+            style: TextStyle(
+              fontFamily: AppFonts.body,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AddVitalScreen extends StatefulWidget {
+  const AddVitalScreen({super.key});
+
+  @override
+  State<AddVitalScreen> createState() => _AddVitalScreenState();
+}
+
+class _AddVitalScreenState extends State<AddVitalScreen> {
+  final _api = ApiService();
+  final _patientNameController = TextEditingController();
+  final _patientIdController = TextEditingController();
+  final _heartRateController = TextEditingController();
+  final _oxygenController = TextEditingController();
+  final _temperatureController = TextEditingController();
+  final _bloodPressureController = TextEditingController();
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _patientNameController.dispose();
+    _patientIdController.dispose();
+    _heartRateController.dispose();
+    _oxygenController.dispose();
+    _temperatureController.dispose();
+    _bloodPressureController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final name = _patientNameController.text.trim();
+    final patientId = _patientIdController.text.trim();
+    final heartRate = int.tryParse(_heartRateController.text.trim());
+    final oxygen = int.tryParse(_oxygenController.text.trim());
+    final temperature = double.tryParse(_temperatureController.text.trim());
+    final bloodPressure = _bloodPressureController.text.trim();
+
+    if (name.isEmpty ||
+        patientId.isEmpty ||
+        heartRate == null ||
+        oxygen == null ||
+        temperature == null ||
+        bloodPressure.isEmpty) {
+      setState(() => _error = 'Please fill in all fields.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final now = DateTime.now();
+    final response = await _api.createVital(
+      patientId: patientId,
+      patientName: name,
+      heartRate: heartRate,
+      bloodPressure: bloodPressure,
+      temperature: temperature,
+      oxygenLevel: oxygen,
+      timestamp: '${now.hour}:${now.minute.toString().padLeft(2, '0')}',
+    );
+
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (response.success) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _error = response.error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSubmit =
+        _patientNameController.text.isNotEmpty &&
+        _patientIdController.text.isNotEmpty &&
+        _heartRateController.text.isNotEmpty &&
+        _oxygenController.text.isNotEmpty &&
+        _temperatureController.text.isNotEmpty &&
+        _bloodPressureController.text.isNotEmpty;
+
+    return AppBackground(
+      glow: AppColors.success,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Telemetry',
+              title: 'Add reading',
+              onBack: () => Navigator.of(context).pop(),
+              trailing: StatusBadge(
+                label: 'Live',
+                color: AppColors.success,
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_error != null) ...[
+                      ErrorBanner(message: _error!),
+                      const SizedBox(height: 14),
+                    ],
+                    _AuthField(
+                      controller: _patientNameController,
+                      label: 'Patient name',
+                      icon: Icons.person_outline_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    _AuthField(
+                      controller: _patientIdController,
+                      label: 'Patient ID',
+                      icon: Icons.badge_outlined,
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AuthField(
+                            controller: _heartRateController,
+                            label: 'Heart rate',
+                            icon: Icons.favorite_outline_rounded,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _AuthField(
+                            controller: _oxygenController,
+                            label: 'Oxygen %',
+                            icon: Icons.air_rounded,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AuthField(
+                            controller: _temperatureController,
+                            label: 'Temp °F',
+                            icon: Icons.thermostat_rounded,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _AuthField(
+                            controller: _bloodPressureController,
+                            label: 'Blood press',
+                            icon: Icons.compress_rounded,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    PrimaryButton(
+                      label: 'Save reading',
+                      icon: Icons.check_rounded,
+                      color: AppColors.success,
+                      loading: _submitting,
+                      onPressed: canSubmit && !_submitting ? _submit : null,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ==================== PATIENTS ====================
 
-class PatientScreen extends StatelessWidget {
-  PatientScreen({super.key});
+class PatientScreen extends StatefulWidget {
+  const PatientScreen({super.key});
 
+  @override
+  State<PatientScreen> createState() => _PatientScreenState();
+}
+
+class _PatientScreenState extends State<PatientScreen> {
   final _db = DatabaseService();
+  final _api = ApiService();
+
+  final List<PatientRecord> _remotePatients = [];
+  bool _syncing = false;
+  String? _syncError;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncPatients();
+  }
+
+  Future<void> _syncPatients() async {
+    if (!_api.isAuthenticated) return;
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
+
+    final response = await _api.getPatients();
+
+    if (!mounted) return;
+    setState(() => _syncing = false);
+
+    if (response.success) {
+      final patients = (response.data?['patients'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(_remotePatientToLocal)
+          .toList()
+        ..sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
+      setState(() {
+        _remotePatients
+          ..clear()
+          ..addAll(patients);
+      });
+    } else {
+      setState(() => _syncError = response.error);
+    }
+  }
+
+  PatientRecord _remotePatientToLocal(Map<String, dynamic> p) {
+    return PatientRecord(
+      id: (p['id'] as String?) ?? '',
+      name: (p['name'] as String?) ?? 'Unknown patient',
+      age: (p['age'] as num?)?.toInt() ?? 0,
+      bloodType: (p['blood_type'] as String?) ?? '—',
+      condition: (p['condition'] as String?) ?? '—',
+      admissionDate: (p['admission_date'] as String?) ?? '',
+      roomNumber: (p['room_number'] as String?) ?? '—',
+    );
+  }
 
   Color _getConditionColor(String condition) {
     if (condition.contains('Critical')) return AppColors.brand;
@@ -2171,7 +2970,7 @@ class PatientScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final patients = _db.patients;
+    final patients = [..._remotePatients, ..._db.patients];
 
     return AppBackground(
       glow: AppColors.sky,
@@ -2182,11 +2981,50 @@ class PatientScreen extends StatelessWidget {
               eyebrow: 'Registry',
               title: 'Patients',
               onBack: () => Navigator.of(context).pop(),
-              trailing: StatusBadge(
-                label: '${patients.length}',
-                color: AppColors.sky,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_syncing)
+                    ...[
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.sky),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                  IconButton(
+                    tooltip: 'Sync from server',
+                    onPressed: _syncing ? null : _syncPatients,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    color: AppColors.sky,
+                  ),
+                  IconButton(
+                    tooltip: 'Add patient',
+                    onPressed: () async {
+                      final result = await openForResult<bool>(
+                          context, const AddPatientScreen());
+                      if (result == true && mounted) _syncPatients();
+                    },
+                    icon: const Icon(Icons.add_rounded, size: 20),
+                    color: AppColors.sky,
+                  ),
+                  if (patients.isNotEmpty)
+                    StatusBadge(
+                      label: '${patients.length}',
+                      color: AppColors.sky,
+                    ),
+                ],
               ),
             ),
+            if (_syncError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
+                child: ErrorBanner(
+                    message: 'Could not sync patients from server'),
+              ),
             Expanded(
               child: patients.isEmpty
                   ? const EmptyState(
@@ -2202,7 +3040,16 @@ class PatientScreen extends StatelessWidget {
                       itemBuilder: (context, index) => _PatientCard(
                           patient: patients[index],
                           color: _getConditionColor(
-                              patients[index].condition)),
+                              patients[index].condition),
+                          onTap: () async {
+                            final result = await openForResult<bool>(
+                              context,
+                              PatientDetailScreen(
+                                patient: patients[index],
+                              ),
+                            );
+                            if (result == true && mounted) _syncPatients();
+                          }),
                     ),
             ),
           ],
@@ -2213,9 +3060,11 @@ class PatientScreen extends StatelessWidget {
 }
 
 class _PatientCard extends StatelessWidget {
-  const _PatientCard({required this.patient, required this.color});
+  const _PatientCard(
+      {required this.patient, required this.color, this.onTap});
   final PatientRecord patient;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2223,6 +3072,7 @@ class _PatientCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.only(bottom: 12),
       radius: AppRadius.md,
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2286,16 +3136,407 @@ class _PatientCard extends StatelessWidget {
   }
 }
 
-// ==================== REPORTS ====================
+class PatientDetailScreen extends StatelessWidget {
+  const PatientDetailScreen({super.key, required this.patient});
+  final PatientRecord patient;
 
-class ReportScreen extends StatelessWidget {
-  ReportScreen({super.key});
+  Color get _conditionColor {
+    if (patient.condition.contains('Critical')) return AppColors.brand;
+    if (patient.condition.contains('Monitoring')) return AppColors.warning;
+    return AppColors.success;
+  }
 
-  final _db = DatabaseService();
+  Widget _infoTile(
+      BuildContext context, IconData icon, String label, String value) {
+    return SurfaceCard(
+      padding: const EdgeInsets.all(14),
+      radius: AppRadius.sm,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.sky),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label.toUpperCase(),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppColors.textMuted, letterSpacing: 1.2)),
+                const SizedBox(height: 3),
+                Text(value, style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final reports = _db.reports;
+    final color = _conditionColor;
+    return AppBackground(
+      glow: color,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Patient registry',
+              title: patient.name,
+              onBack: () => Navigator.of(context).pop(),
+              trailing: StatusBadge(
+                label: 'Room ${patient.roomNumber}',
+                color: color,
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(color: color.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.medical_services_rounded,
+                              size: 18, color: color),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Text(
+                              patient.condition,
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _infoTile(context, Icons.person_rounded, 'Age',
+                        '${patient.age} years'),
+                    _infoTile(context, Icons.water_drop_outlined, 'Blood type',
+                        patient.bloodType),
+                    _infoTile(
+                        context,
+                        Icons.calendar_today_rounded,
+                        'Admission date',
+                        patient.admissionDate),
+                    _infoTile(
+                        context,
+                        Icons.meeting_room_outlined,
+                        'Room',
+                        patient.roomNumber),
+                    const SizedBox(height: 14),
+                    PrimaryButton(
+                      label: 'Edit patient',
+                      icon: Icons.edit_rounded,
+                      color: AppColors.sky,
+                      onPressed: () async {
+                        final result = await openForResult<bool>(
+                          context,
+                          AddPatientScreen(patient: patient),
+                        );
+                        if (result == true && context.mounted) {
+                          Navigator.of(context).pop(true);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AddPatientScreen extends StatefulWidget {
+  const AddPatientScreen({super.key, this.patient});
+  final PatientRecord? patient;
+
+  @override
+  State<AddPatientScreen> createState() => _AddPatientScreenState();
+}
+
+class _AddPatientScreenState extends State<AddPatientScreen> {
+  final _api = ApiService();
+  late final TextEditingController _nameController;
+  late final TextEditingController _ageController;
+  late final TextEditingController _bloodTypeController;
+  late final TextEditingController _conditionController;
+  late final TextEditingController _admissionDateController;
+  late final TextEditingController _roomController;
+  bool _submitting = false;
+  String? _error;
+
+  bool get _isEditing => widget.patient != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.patient;
+    _nameController = TextEditingController(text: p?.name ?? '');
+    _ageController =
+        TextEditingController(text: p != null ? '${p.age}' : '');
+    _bloodTypeController =
+        TextEditingController(text: p?.bloodType ?? '');
+    _conditionController =
+        TextEditingController(text: p?.condition ?? '');
+    _admissionDateController =
+        TextEditingController(text: p?.admissionDate ?? '');
+    _roomController = TextEditingController(text: p?.roomNumber ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _ageController.dispose();
+    _bloodTypeController.dispose();
+    _conditionController.dispose();
+    _admissionDateController.dispose();
+    _roomController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final name = _nameController.text.trim();
+    final age = int.tryParse(_ageController.text.trim());
+    final bloodType = _bloodTypeController.text.trim();
+    final condition = _conditionController.text.trim();
+    final admissionDate = _admissionDateController.text.trim();
+    final room = _roomController.text.trim();
+
+    if (name.isEmpty ||
+        age == null ||
+        bloodType.isEmpty ||
+        condition.isEmpty ||
+        admissionDate.isEmpty ||
+        room.isEmpty) {
+      setState(() => _error = 'Please fill in all fields.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final ApiResponse response;
+    if (_isEditing && widget.patient!.id.isNotEmpty) {
+      response = await _api.updatePatient(
+        widget.patient!.id,
+        name: name,
+        age: age,
+        bloodType: bloodType,
+        condition: condition,
+        admissionDate: admissionDate,
+        roomNumber: room,
+      );
+    } else {
+      response = await _api.createPatient(
+        name: name,
+        age: age,
+        bloodType: bloodType,
+        condition: condition,
+        admissionDate: admissionDate,
+        roomNumber: room,
+      );
+    }
+
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (response.success) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _error = response.error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSubmit =
+        _nameController.text.isNotEmpty &&
+        _ageController.text.isNotEmpty &&
+        _bloodTypeController.text.isNotEmpty &&
+        _conditionController.text.isNotEmpty &&
+        _admissionDateController.text.isNotEmpty &&
+        _roomController.text.isNotEmpty;
+
+    return AppBackground(
+      glow: AppColors.sky,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Registry',
+              title: _isEditing ? 'Edit patient' : 'Add patient',
+              onBack: () => Navigator.of(context).pop(),
+              trailing: StatusBadge(
+                label: _isEditing ? 'Edit' : 'New',
+                color: AppColors.sky,
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_error != null) ...[
+                      ErrorBanner(message: _error!),
+                      const SizedBox(height: 14),
+                    ],
+                    _AuthField(
+                      controller: _nameController,
+                      label: 'Full name',
+                      icon: Icons.person_outline_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AuthField(
+                            controller: _ageController,
+                            label: 'Age',
+                            icon: Icons.numbers_rounded,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _AuthField(
+                            controller: _bloodTypeController,
+                            label: 'Blood type',
+                            icon: Icons.water_drop_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _AuthField(
+                      controller: _conditionController,
+                      label: 'Condition (e.g. Stable - Post MI)',
+                      icon: Icons.medical_services_outlined,
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AuthField(
+                            controller: _admissionDateController,
+                            label: 'Admission date',
+                            icon: Icons.calendar_today_rounded,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _AuthField(
+                            controller: _roomController,
+                            label: 'Room',
+                            icon: Icons.meeting_room_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    PrimaryButton(
+                      label: _isEditing ? 'Save changes' : 'Add patient',
+                      icon: Icons.check_rounded,
+                      color: AppColors.sky,
+                      loading: _submitting,
+                      onPressed: canSubmit && !_submitting ? _submit : null,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== REPORTS ====================
+
+class ReportScreen extends StatefulWidget {
+  const ReportScreen({super.key});
+
+  @override
+  State<ReportScreen> createState() => _ReportScreenState();
+}
+
+class _ReportScreenState extends State<ReportScreen> {
+  final _db = DatabaseService();
+  final _api = ApiService();
+
+  final List<MedicalReport> _remoteReports = [];
+  bool _syncing = false;
+  String? _syncError;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncReports();
+  }
+
+  Future<void> _syncReports() async {
+    if (!_api.isAuthenticated) return;
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
+
+    final response = await _api.getReports();
+
+    if (!mounted) return;
+    setState(() => _syncing = false);
+
+    if (response.success) {
+      final reports = (response.data?['reports'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(_remoteReportToLocal)
+          .toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+      setState(() {
+        _remoteReports
+          ..clear()
+          ..addAll(reports);
+      });
+    } else {
+      setState(() => _syncError = response.error);
+    }
+  }
+
+  MedicalReport _remoteReportToLocal(Map<String, dynamic> r) {
+    return MedicalReport(
+      id: (r['id'] as String?) ?? '',
+      patientName: (r['patient_name'] as String?) ?? 'Unknown patient',
+      reportType: (r['report_type'] as String?) ?? 'Report',
+      date: (r['date'] as String?) ?? '',
+      summary: (r['summary'] as String?) ?? '',
+      doctor: (r['doctor'] as String?) ?? '—',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reports = [..._remoteReports, ..._db.reports];
 
     return AppBackground(
       glow: AppColors.warning,
@@ -2306,11 +3547,50 @@ class ReportScreen extends StatelessWidget {
               eyebrow: 'Documents',
               title: 'Reports',
               onBack: () => Navigator.of(context).pop(),
-              trailing: StatusBadge(
-                label: '${reports.length}',
-                color: AppColors.warning,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_syncing)
+                    ...[
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.warning),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                  IconButton(
+                    tooltip: 'Sync from server',
+                    onPressed: _syncing ? null : _syncReports,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    color: AppColors.warning,
+                  ),
+                  IconButton(
+                    tooltip: 'Add report',
+                    onPressed: () async {
+                      final result = await openForResult<bool>(
+                          context, const AddReportScreen());
+                      if (result == true && mounted) _syncReports();
+                    },
+                    icon: const Icon(Icons.add_rounded, size: 20),
+                    color: AppColors.warning,
+                  ),
+                  if (reports.isNotEmpty)
+                    StatusBadge(
+                      label: '${reports.length}',
+                      color: AppColors.warning,
+                    ),
+                ],
               ),
             ),
+            if (_syncError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
+                child: ErrorBanner(
+                    message: 'Could not sync reports from server'),
+              ),
             Expanded(
               child: reports.isEmpty
                   ? const EmptyState(
@@ -2323,8 +3603,13 @@ class ReportScreen extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(
                           AppSpace.xl, AppSpace.sm, AppSpace.xl, 32),
                       itemCount: reports.length,
-                      itemBuilder: (context, index) =>
-                          _ReportCard(report: reports[index]),
+                      itemBuilder: (context, index) => _ReportCard(
+                        report: reports[index],
+                        onTap: () => open(
+                          context,
+                          ReportDetailScreen(report: reports[index]),
+                        ),
+                      ),
                     ),
             ),
           ],
@@ -2335,8 +3620,9 @@ class ReportScreen extends StatelessWidget {
 }
 
 class _ReportCard extends StatelessWidget {
-  const _ReportCard({required this.report});
+  const _ReportCard({required this.report, this.onTap});
   final MedicalReport report;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2344,6 +3630,7 @@ class _ReportCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.only(bottom: 12),
       radius: AppRadius.md,
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2402,4 +3689,282 @@ class _ReportCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class ReportDetailScreen extends StatelessWidget {
+  const ReportDetailScreen({super.key, required this.report});
+  final MedicalReport report;
+
+  Widget _metaTile(
+      BuildContext context, IconData icon, String label, String value) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.ink.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: AppColors.warning),
+            const SizedBox(height: 8),
+            Text(label.toUpperCase(),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppColors.textMuted, letterSpacing: 1.2)),
+            const SizedBox(height: 3),
+            Text(value, style: Theme.of(context).textTheme.titleMedium),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBackground(
+      glow: AppColors.warning,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Document',
+              title: report.reportType,
+              onBack: () => Navigator.of(context).pop(),
+              trailing: IconTile(
+                icon: Icons.description_outlined,
+                color: AppColors.warning,
+                size: 34,
+                iconSize: 17,
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(report.patientName,
+                        style: Theme.of(context).textTheme.headlineMedium),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        _metaTile(context, Icons.person_rounded,
+                            'Patient', report.patientName),
+                        const SizedBox(width: 12),
+                        _metaTile(context, Icons.calendar_today_rounded,
+                            'Date', report.date),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _metaTile(context, Icons.medical_services_rounded,
+                            'Type', report.reportType),
+                        const SizedBox(width: 12),
+                        _metaTile(context, Icons.badge_outlined,
+                            'Doctor', report.doctor),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text('Summary',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.ink.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.hairline),
+                      ),
+                      child: Text(
+                        report.summary,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.textSecondary, height: 1.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AddReportScreen extends StatefulWidget {
+  const AddReportScreen({super.key});
+
+  @override
+  State<AddReportScreen> createState() => _AddReportScreenState();
+}
+
+class _AddReportScreenState extends State<AddReportScreen> {
+  final _api = ApiService();
+  final _patientNameController = TextEditingController();
+  final _reportTypeController = TextEditingController();
+  final _dateController = TextEditingController();
+  final _summaryController = TextEditingController();
+  final _doctorController = TextEditingController();
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _patientNameController.dispose();
+    _reportTypeController.dispose();
+    _dateController.dispose();
+    _summaryController.dispose();
+    _doctorController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final patientName = _patientNameController.text.trim();
+    final reportType = _reportTypeController.text.trim();
+    final date = _dateController.text.trim();
+    final summary = _summaryController.text.trim();
+    final doctor = _doctorController.text.trim();
+
+    if (patientName.isEmpty ||
+        reportType.isEmpty ||
+        date.isEmpty ||
+        summary.isEmpty ||
+        doctor.isEmpty) {
+      setState(() => _error = 'Please fill in all fields.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final response = await _api.createReport(
+      patientName: patientName,
+      reportType: reportType,
+      date: date,
+      summary: summary,
+      doctor: doctor,
+    );
+
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (response.success) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _error = response.error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSubmit =
+        _patientNameController.text.isNotEmpty &&
+        _reportTypeController.text.isNotEmpty &&
+        _dateController.text.isNotEmpty &&
+        _summaryController.text.isNotEmpty &&
+        _doctorController.text.isNotEmpty;
+
+    return AppBackground(
+      glow: AppColors.warning,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Documents',
+              title: 'Add report',
+              onBack: () => Navigator.of(context).pop(),
+              trailing: StatusBadge(
+                label: 'New',
+                color: AppColors.warning,
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_error != null) ...[
+                      ErrorBanner(message: _error!),
+                      const SizedBox(height: 14),
+                    ],
+                    _AuthField(
+                      controller: _patientNameController,
+                      label: 'Patient name',
+                      icon: Icons.person_outline_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    _AuthField(
+                      controller: _reportTypeController,
+                      label: 'Report type',
+                      icon: Icons.description_outlined,
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AuthField(
+                            controller: _dateController,
+                            label: 'Date',
+                            icon: Icons.calendar_today_rounded,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _AuthField(
+                            controller: _doctorController,
+                            label: 'Doctor',
+                            icon: Icons.badge_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _AuthField(
+                      controller: _summaryController,
+                      label: 'Summary',
+                      icon: Icons.notes_rounded,
+                    ),
+                    const SizedBox(height: 24),
+                    PrimaryButton(
+                      label: 'Save report',
+                      icon: Icons.check_rounded,
+                      color: AppColors.warning,
+                      loading: _submitting,
+                      onPressed: canSubmit && !_submitting ? _submit : null,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== PAYMENT RESULT ====================
+
+class _RazorpayPaymentResult {
+  const _RazorpayPaymentResult({
+    required this.success,
+    this.paymentId,
+    this.signature,
+    this.error,
+  });
+
+  final bool success;
+  final String? paymentId;
+  final String? signature;
+  final String? error;
 }

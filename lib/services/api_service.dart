@@ -45,6 +45,43 @@ class ApiService {
     return headers;
   }
 
+  // ==================== SERVER / PROFILE ====================
+
+  /// Check whether the backend is reachable
+  Future<bool> checkServerHealth() async {
+    try {
+      final response = await http
+          .get(Uri.parse('$baseUrl/health'))
+          .timeout(const Duration(seconds: 4));
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Get current user profile from the server
+  Future<ApiResponse> getProfile() async {
+    try {
+      final response =
+          await http.get(Uri.parse('$baseUrl/api/auth/me'), headers: _headers(auth: true));
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data?['error'] ?? 'Failed to fetch profile');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  dynamic _tryDecode(String body) {
+    try {
+      return jsonDecode(body);
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ==================== AUTH ENDPOINTS ====================
 
   /// Register a new user
@@ -64,7 +101,7 @@ class ApiService {
         }),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 201) {
         _authToken = data['token'];
@@ -95,7 +132,7 @@ class ApiService {
         }),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         _authToken = data['token'];
@@ -124,7 +161,7 @@ class ApiService {
         }),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -145,7 +182,7 @@ class ApiService {
         body: jsonEncode({'fcmToken': fcmToken}),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -178,7 +215,7 @@ class ApiService {
 
       final response = await http.get(uri, headers: _headers());
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -213,7 +250,7 @@ class ApiService {
         }),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -244,7 +281,7 @@ class ApiService {
         }),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -267,7 +304,7 @@ class ApiService {
         body: jsonEncode({'alertId': alertId}),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -287,7 +324,7 @@ class ApiService {
         headers: _headers(auth: true),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -307,13 +344,246 @@ class ApiService {
         headers: _headers(auth: true),
       );
 
-      final data = jsonDecode(response.body);
+      final data = _tryDecode(response.body);
 
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
       }
 
       return ApiResponse.error(data['error'] ?? 'Failed to fetch alert');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  // ==================== RECORDS (PATIENTS / VITALS / REPORTS) ====================
+
+  /// List patients for the logged-in user
+  Future<ApiResponse> getPatients() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/records/patients'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to fetch patients');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Create a patient record
+  Future<ApiResponse> createPatient({
+    required String name,
+    required int age,
+    required String bloodType,
+    required String condition,
+    required String admissionDate,
+    required String roomNumber,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/records/patients'),
+        headers: _headers(auth: true),
+        body: jsonEncode({
+          'name': name,
+          'age': age,
+          'bloodType': bloodType,
+          'condition': condition,
+          'admissionDate': admissionDate,
+          'roomNumber': roomNumber,
+        }),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 201) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to create patient');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Update a patient record
+  Future<ApiResponse> updatePatient(
+    String id, {
+    required String name,
+    required int age,
+    required String bloodType,
+    required String condition,
+    required String admissionDate,
+    required String roomNumber,
+  }) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/records/patients/$id'),
+        headers: _headers(auth: true),
+        body: jsonEncode({
+          'name': name,
+          'age': age,
+          'bloodType': bloodType,
+          'condition': condition,
+          'admissionDate': admissionDate,
+          'roomNumber': roomNumber,
+        }),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to update patient');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Delete a patient record
+  Future<ApiResponse> deletePatient(String id) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/records/patients/$id'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to delete patient');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// List vital readings for the logged-in user
+  Future<ApiResponse> getVitals() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/records/vitals'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to fetch vitals');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Add a vital reading
+  Future<ApiResponse> createVital({
+    required String patientId,
+    required String patientName,
+    required int heartRate,
+    required String bloodPressure,
+    required double temperature,
+    required int oxygenLevel,
+    String? timestamp,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/records/vitals'),
+        headers: _headers(auth: true),
+        body: jsonEncode({
+          'patientId': patientId,
+          'patientName': patientName,
+          'heartRate': heartRate,
+          'bloodPressure': bloodPressure,
+          'temperature': temperature,
+          'oxygenLevel': oxygenLevel,
+          if (timestamp != null) 'timestamp': timestamp,
+        }),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 201) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to add vital reading');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Delete a vital reading
+  Future<ApiResponse> deleteVital(String id) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/records/vitals/$id'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to delete vital');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// List medical reports for the logged-in user
+  Future<ApiResponse> getReports() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/records/reports'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to fetch reports');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Create a medical report
+  Future<ApiResponse> createReport({
+    required String patientName,
+    required String reportType,
+    required String date,
+    required String summary,
+    required String doctor,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/records/reports'),
+        headers: _headers(auth: true),
+        body: jsonEncode({
+          'patientName': patientName,
+          'reportType': reportType,
+          'date': date,
+          'summary': summary,
+          'doctor': doctor,
+        }),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 201) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to create report');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Delete a medical report
+  Future<ApiResponse> deleteReport(String id) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/records/reports/$id'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data['error'] ?? 'Failed to delete report');
     } catch (e) {
       return ApiResponse.error('Network error: $e');
     }

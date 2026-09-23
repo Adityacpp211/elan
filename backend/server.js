@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const hospitalsRoutes = require('./routes/hospitals');
 const paymentsRoutes = require('./routes/payments');
 const alertsRoutes = require('./routes/alerts');
+const recordsRoutes = require('./routes/records');
 
 // Import models for seeding
 const Hospital = require('./models/Hospital');
@@ -100,6 +101,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/hospitals', hospitalsRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/alerts', alertsRoutes);
+app.use('/api/records', recordsRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -140,6 +142,9 @@ async function startServer() {
 ║    POST /api/payments/verify  - Verify payment     ║
 ║    POST /api/alerts/send      - Send emergency     ║
 ║    GET  /api/alerts/history   - Alert history      ║
+║    CRUD /api/records/patients - Patient records    ║
+║    CRUD /api/records/vitals   - Vital readings     ║
+║    CRUD /api/records/reports  - Medical reports    ║
 ╚════════════════════════════════════════════════════╝
       `);
         });
