@@ -461,12 +461,20 @@ class _DashboardState extends State<Dashboard> {
   void initState() {
     super.initState();
     _loadWallet();
+    _syncProfile();
   }
 
   Future<void> _loadWallet() async {
     final prefs = await SharedPreferences.getInstance();
     final balance = prefs.getDouble('walletBalance') ?? 5000.0;
     if (mounted) setState(() => _wallet = balance);
+  }
+
+  Future<void> _syncProfile() async {
+    if (AuthService().currentLoggedInUser?.id == null) return;
+    final error = await AuthService().syncProfileFromServer();
+    if (!mounted) return;
+    if (error == null) setState(() {});
   }
 
   String get _greeting {
@@ -2112,10 +2120,46 @@ class _AlertCard extends StatelessWidget {
 
 // ==================== USER PROFILE ====================
 
-class UserProfileScreen extends StatelessWidget {
+class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({super.key});
 
-  Future<void> _confirmAndLogout(BuildContext context) async {
+  @override
+  State<UserProfileScreen> createState() => _UserProfileScreenState();
+}
+
+class _UserProfileScreenState extends State<UserProfileScreen> {
+  final _auth = AuthService();
+  bool _syncing = false;
+  String? _syncError;
+  String? _lastSyncMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncProfile();
+  }
+
+  Future<void> _syncProfile() async {
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+      _lastSyncMessage = null;
+    });
+
+    final error = await _auth.syncProfileFromServer();
+
+    if (!mounted) return;
+    setState(() {
+      _syncing = false;
+      if (error != null) {
+        _syncError = error;
+      } else {
+        _lastSyncMessage = 'Profile synced from server';
+      }
+    });
+  }
+
+  Future<void> _confirmAndLogout() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -2139,10 +2183,10 @@ class UserProfileScreen extends StatelessWidget {
       ),
     );
 
-    if (confirmed != true || !context.mounted) return;
+    if (confirmed != true || !mounted) return;
 
-    await AuthService().logout();
-    if (!context.mounted) return;
+    await _auth.logout();
+    if (!mounted) return;
     Navigator.of(context).popUntil((route) => false);
     Navigator.pushReplacement(
       context,
@@ -2150,9 +2194,27 @@ class UserProfileScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _openEditForm() async {
+    final changed = await openForResult<bool>(
+      context,
+      EditProfileScreen(),
+    );
+    if (changed == true && mounted) {
+      await _syncProfile();
+    }
+  }
+
+  Color _roleColor(String role) {
+    if (role == 'admin') return AppColors.brand;
+    if (role == 'physician' || role == 'doctor') return AppColors.success;
+    return AppColors.sky;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = AuthService().currentLoggedInUser;
+    final user = _auth.currentLoggedInUser;
+    final role = (user?.role.isEmpty ?? true) ? 'member' : (user?.role ?? 'member');
+    final phone = user?.phone ?? '';
 
     return AppBackground(
       child: SafeArea(
@@ -2162,6 +2224,33 @@ class UserProfileScreen extends StatelessWidget {
               eyebrow: 'Account',
               title: 'My profile',
               onBack: () => Navigator.of(context).pop(),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_syncing)
+                    ...[
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.brand),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                  IconButton(
+                    tooltip: 'Sync profile',
+                    onPressed: _syncing ? null : _syncProfile,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    color: AppColors.brand,
+                  ),
+                  IconButton(
+                    tooltip: 'Edit profile',
+                    onPressed: _openEditForm,
+                    icon: const Icon(Icons.edit_rounded, size: 20),
+                    color: AppColors.brand,
+                  ),
+                ],
+              ),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -2172,6 +2261,38 @@ class UserProfileScreen extends StatelessWidget {
                   child: Center(
                     child: Column(
                       children: [
+                        if (_syncError != null) ...[
+                          ErrorBanner(
+                            message: 'Could not sync profile from server',
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+                        if (_lastSyncMessage != null) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.success.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              border: Border.all(
+                                  color: AppColors.success.withValues(alpha: 0.4)),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.cloud_done_rounded,
+                                    size: 18, color: AppColors.success),
+                                const SizedBox(width: 9),
+                                Text(_lastSyncMessage!,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(color: AppColors.success)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
                         // Avatar
                         Container(
                           width: 96,
@@ -2212,6 +2333,11 @@ class UserProfileScreen extends StatelessWidget {
                                 .textTheme
                                 .bodyMedium
                                 ?.copyWith(color: AppColors.alert)),
+                        const SizedBox(height: 12),
+                        StatusBadge(
+                          label: role.toUpperCase(),
+                          color: _roleColor(role),
+                        ),
                         const SizedBox(height: 28),
 
                         SurfaceCard(
@@ -2238,8 +2364,41 @@ class UserProfileScreen extends StatelessWidget {
                                   color: AppColors.success,
                                 ),
                               ),
+                              Divider(height: 1, color: AppColors.hairline),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14, horizontal: 4),
+                                child: InfoRow(
+                                  icon: Icons.phone_outlined,
+                                  label: 'Phone',
+                                  value: phone.isEmpty
+                                      ? 'Not set'
+                                      : phone,
+                                  color: AppColors.sky,
+                                ),
+                              ),
+                              Divider(height: 1, color: AppColors.hairline),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14, horizontal: 4),
+                                child: InfoRow(
+                                  icon: Icons.shield_outlined,
+                                  label: 'Role',
+                                  value: role.toUpperCase(),
+                                  color: _roleColor(role),
+                                ),
+                              ),
                             ],
                           ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        TonalButton(
+                          label: 'Edit profile',
+                          icon: Icons.edit_rounded,
+                          color: AppColors.brand,
+                          onPressed: _openEditForm,
                         ),
 
                         const SizedBox(height: 28),
@@ -2248,10 +2407,126 @@ class UserProfileScreen extends StatelessWidget {
                           label: 'Log out',
                           icon: Icons.logout_rounded,
                           color: AppColors.brand,
-                          onPressed: () => _confirmAndLogout(context),
+                          onPressed: _confirmAndLogout,
                         ),
                       ],
                     ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EditProfileScreen extends StatefulWidget {
+  const EditProfileScreen({super.key});
+
+  @override
+  State<EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfileScreen> {
+  final _auth = AuthService();
+  late final TextEditingController _nameController;
+  late final TextEditingController _phoneController;
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final user = _auth.currentLoggedInUser;
+    _nameController = TextEditingController(text: user?.name ?? '');
+    _phoneController = TextEditingController(text: user?.phone ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Name is required.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final error = await _auth.updateProfile(
+      name: name,
+      phone: _phoneController.text.trim(),
+    );
+
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (error != null) {
+      setState(() => _error = error);
+    } else {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBackground(
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Account',
+              title: 'Edit profile',
+              onBack: () => Navigator.of(context).pop(),
+              trailing: StatusBadge(
+                label: 'Edit',
+                color: AppColors.brand,
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_error != null) ...[
+                        ErrorBanner(message: _error!),
+                        const SizedBox(height: 14),
+                      ],
+                      _AuthField(
+                        controller: _nameController,
+                        label: 'Full name',
+                        icon: Icons.person_outline_rounded,
+                      ),
+                      const SizedBox(height: 14),
+                      _AuthField(
+                        controller: _phoneController,
+                        label: 'Phone (optional)',
+                        icon: Icons.phone_outlined,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 24),
+                      PrimaryButton(
+                        label: 'Save changes',
+                        icon: Icons.check_rounded,
+                        loading: _submitting,
+                        onPressed:
+                            _submitting ? null : _submit,
+                      ),
+                    ],
                   ),
                 ),
               ),

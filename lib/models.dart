@@ -14,13 +14,28 @@ class User {
   final String name;
   final String email;
   final String password;
+  final String phone;
+  final String role;
 
   User({
     this.id,
     required this.name,
     required this.email,
     required this.password,
+    this.phone = '',
+    this.role = 'member',
   });
+
+  User copyWith({String? name, String? phone, String? role}) {
+    return User(
+      id: id,
+      name: name ?? this.name,
+      email: email,
+      password: password,
+      phone: phone ?? this.phone,
+      role: role ?? this.role,
+    );
+  }
 }
 
 class PatientRecord {
@@ -238,6 +253,63 @@ class AuthService {
   // Get current logged-in user
   User? get currentLoggedInUser => _currentLoggedInUser;
 
+  // Refresh the current user's profile from the server (best effort).
+  // Returns null on success, or an error message if the server is unreachable.
+  Future<String?> syncProfileFromServer() async {
+    final userId = _currentLoggedInUser?.id;
+    if (userId == null || userId.isEmpty) return 'Not signed in';
+
+    final response = await _api.getProfile();
+    if (!response.success) return response.error;
+
+    final data = response.data ?? {};
+    final serverUser = User(
+      id: userId,
+      name: (data['name'] as String?) ?? _currentLoggedInUser!.name,
+      email: (data['email'] as String?) ?? _currentLoggedInUser!.email,
+      password: '',
+      phone: (data['phone'] as String?) ?? '',
+      role: (data['role'] as String?) ?? 'member',
+    );
+
+    await _initPrefs();
+    await _prefs.setString(_kName, serverUser.name);
+
+    _currentLoggedInUser = serverUser;
+    return null;
+  }
+
+  // Update the current user's profile (name / phone) on the server.
+  Future<String?> updateProfile({required String name, String? phone}) async {
+    if (name.trim().isEmpty) return 'Name is required';
+
+    final userId = _currentLoggedInUser?.id;
+    if (userId == null || userId.isEmpty) {
+      // Offline fallback: mirror the change locally.
+      await _initPrefs();
+      await _prefs.setString(_kName, name.trim());
+      _currentLoggedInUser = _currentLoggedInUser?.copyWith(name: name.trim());
+      return null;
+    }
+
+    final response = await _api.updateProfile(name: name.trim(), phone: phone);
+    if (!response.success) return response.error;
+
+    final userData = response.data?['user'] ?? {};
+    await _initPrefs();
+    await _prefs.setString(_kName, name.trim());
+
+    _currentLoggedInUser = User(
+      id: userId,
+      name: (userData['name'] as String?) ?? name.trim(),
+      email: (userData['email'] as String?) ?? _currentLoggedInUser!.email,
+      password: '',
+      phone: (userData['phone'] as String?) ?? phone ?? '',
+      role: (userData['role'] as String?) ?? _currentLoggedInUser!.role,
+    );
+    return null;
+  }
+
   // Sign up a new user
   Future<String?> signUp(String name, String email, String password,
       String confirmPassword) async {
@@ -343,6 +415,8 @@ class AuthService {
       name: (userData['name'] as String?) ?? 'User',
       email: (userData['email'] as String?) ?? '',
       password: '',
+      phone: (userData['phone'] as String?) ?? '',
+      role: (userData['role'] as String?) ?? 'member',
     );
 
     if (!_users.any(

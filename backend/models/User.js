@@ -33,6 +33,14 @@ class User {
         run('UPDATE users SET fcm_token = ? WHERE id = ?', [fcmToken, id]);
         return this.findById(id);
     }
+
+    static updateProfile(id, data) {
+        run(
+            `UPDATE users SET name = ?, phone = ? WHERE id = ?`,
+            [data.name, data.phone || null, id]
+        );
+        return this.findById(id);
+    }
 }
 
 module.exports = User;

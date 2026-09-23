@@ -47,7 +47,9 @@ router.post('/register', async (req, res) => {
             user: {
                 id: user.id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                phone: user.phone || '',
+                role: user.role || 'member'
             },
             requiresLocation: true // Frontend should request location after login
         });
@@ -96,7 +98,9 @@ router.post('/login', async (req, res) => {
             user: {
                 id: user.id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                phone: user.phone || '',
+                role: user.role || 'member'
             },
             requiresLocation: true // Frontend should request location after login
         });
@@ -161,12 +165,48 @@ router.get('/me', authMiddleware, (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone || '',
+        role: user.role || 'member',
         location: user.last_latitude ? {
             latitude: user.last_latitude,
             longitude: user.last_longitude,
             updatedAt: user.last_location_update
         } : null
     });
+});
+
+// Update current user profile
+router.put('/me', authMiddleware, (req, res) => {
+    try {
+        const { name, phone } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ error: 'Name is required' });
+        }
+
+        const user = User.updateProfile(req.user.userId, {
+            name: name.trim(),
+            phone: phone ? String(phone).trim() : ''
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json({
+            message: 'Profile updated',
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone || '',
+                role: user.role || 'member'
+            }
+        });
+    } catch (error) {
+        console.error('Profile update error:', error);
+        res.status(500).json({ error: 'Failed to update profile' });
+    }
 });
 
 module.exports = router;

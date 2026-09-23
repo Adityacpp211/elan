@@ -74,6 +74,30 @@ class ApiService {
     }
   }
 
+  /// Update current user profile (name / phone)
+  Future<ApiResponse> updateProfile({
+    String? name,
+    String? phone,
+  }) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/auth/me'),
+        headers: _headers(auth: true),
+        body: jsonEncode({
+          if (name != null) 'name': name,
+          if (phone != null) 'phone': phone,
+        }),
+      );
+      final data = _tryDecode(response.body);
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+      return ApiResponse.error(data?['error'] ?? 'Failed to update profile');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
   dynamic _tryDecode(String body) {
     try {
       return jsonDecode(body);

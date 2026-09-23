@@ -32,6 +32,8 @@ async function initializeDatabase() {
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
+      phone TEXT,
+      role TEXT DEFAULT 'member',
       fcm_token TEXT,
       last_latitude REAL,
       last_longitude REAL,
@@ -134,6 +136,15 @@ async function initializeDatabase() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migrations for existing databases (safe to run on fresh DBs too).
+  const userColumns = all('PRAGMA table_info(users)');
+  if (!userColumns.some((c) => c.name === 'phone')) {
+    db.run('ALTER TABLE users ADD COLUMN phone TEXT');
+  }
+  if (!userColumns.some((c) => c.name === 'role')) {
+    db.run("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'");
+  }
 
   saveDatabase();
   console.log('✅ Database initialized successfully');
