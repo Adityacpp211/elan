@@ -406,6 +406,7 @@ class ScreenHeader extends StatelessWidget implements PreferredSizeWidget {
               if (onBack != null) const SizedBox(width: AppSpace.md),
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -415,7 +416,10 @@ class ScreenHeader extends StatelessWidget implements PreferredSizeWidget {
                         child: EyebrowLabel(text: eyebrow!),
                       ),
                     if (title != null)
-                      Text(title!, style: Theme.of(context).textTheme.headlineSmall),
+                      Text(title!,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
                     if (subtitle != null)
                       Text(subtitle!,
                           style: Theme.of(context).textTheme.bodySmall,

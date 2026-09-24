@@ -821,9 +821,15 @@ class _ModuleTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              Text(title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
               const SizedBox(height: 2),
-              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+              Text(subtitle,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
             ],
           ),
         ],
@@ -1431,16 +1437,20 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Text(
-                                    _isLoadingLocation
-                                        ? 'Acquiring position…'
-                                        : 'Live position',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelMedium
-                                        ?.copyWith(
-                                            color: AppColors.textSecondary,
-                                            letterSpacing: 1.0),
+                                  Flexible(
+                                    child: Text(
+                                      _isLoadingLocation
+                                          ? 'Acquiring position…'
+                                          : 'Live position',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium
+                                          ?.copyWith(
+                                              color: AppColors.textSecondary,
+                                              letterSpacing: 1.0),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                   if (_isLoadingLocation) ...[
                                     const SizedBox(width: 8),
@@ -2722,11 +2732,16 @@ class _VitalsCard extends StatelessWidget {
               children: [
                 Icon(icon, size: 14, color: color),
                 const SizedBox(width: 6),
-                Text(label,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: AppColors.textMuted,
-                          letterSpacing: 1.0,
-                        )),
+                Flexible(
+                  child: Text(label,
+                      style:
+                          Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: AppColors.textMuted,
+                                letterSpacing: 1.0,
+                              ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -3368,14 +3383,22 @@ class _PatientCard extends StatelessWidget {
             children: [
               Icon(Icons.person_rounded, size: 15, color: AppColors.textMuted),
               const SizedBox(width: 6),
-              Text('${patient.age} yrs  •  ${patient.bloodType}',
-                  style: Theme.of(context).textTheme.bodyMedium),
+              Flexible(
+                child: Text('${patient.age} yrs  •  ${patient.bloodType}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
               const SizedBox(width: 14),
               Icon(Icons.calendar_today_rounded,
                   size: 13, color: AppColors.textMuted),
               const SizedBox(width: 6),
-              Text(patient.admissionDate,
-                  style: Theme.of(context).textTheme.bodyMedium),
+              Flexible(
+                child: Text(patient.admissionDate,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
           const SizedBox(height: 12),
