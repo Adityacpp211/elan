@@ -12,6 +12,15 @@ module.exports = {
     keyId: process.env.RAZORPAY_KEY_ID,
     keySecret: process.env.RAZORPAY_KEY_SECRET
   },
+
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || 'CardioAid <no-reply@cardioaid.app>'
+  },
   
   alertPricing: {
     tier1: parseInt(process.env.ALERT_TIER_1_PRICE) || 100,  // ₹1 in paise

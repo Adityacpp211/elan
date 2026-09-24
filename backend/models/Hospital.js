@@ -27,6 +27,29 @@ class Hospital {
         return get('SELECT * FROM hospitals WHERE id = ?', [id]);
     }
 
+    static update(id, data) {
+        run(
+            `UPDATE hospitals SET
+              name = ?, address = ?, phone = ?, emergency_email = ?, latitude = ?, longitude = ?, is_active = ?
+             WHERE id = ?`,
+            [
+                data.name,
+                data.address,
+                data.phone,
+                data.emergencyEmail || null,
+                data.latitude,
+                data.longitude,
+                data.isActive === undefined ? 1 : data.isActive,
+                id
+            ]
+        );
+        return this.findById(id);
+    }
+
+    static remove(id) {
+        run('UPDATE hospitals SET is_active = 0 WHERE id = ?', [id]);
+    }
+
     static findAll() {
         return all('SELECT * FROM hospitals WHERE is_active = 1');
     }

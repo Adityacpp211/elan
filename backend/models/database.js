@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 let db = null;
-const DB_PATH = path.join(__dirname, '../data/cardioaid.db');
+const DB_PATH = process.env.CARDIOAID_DB_PATH || path.join(__dirname, '../data/cardioaid.db');
 
 // Initialize the database
 async function initializeDatabase() {

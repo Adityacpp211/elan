@@ -97,7 +97,9 @@ router.post('/send', authMiddleware, async (req, res) => {
                 id: r.hospitalId,
                 name: r.hospitalName,
                 notificationSent: r.success,
-                mock: r.mock || false
+                mock: r.mock || false,
+                emailSent: r.email?.sent || false,
+                emailMock: r.email?.mock || false
             }))
         });
     } catch (error) {

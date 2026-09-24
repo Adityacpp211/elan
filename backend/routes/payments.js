@@ -2,8 +2,8 @@ const express = require('express');
 const Alert = require('../models/Alert');
 const Payment = require('../models/Payment');
 const Hospital = require('../models/Hospital');
-const User = require('../models/User');
 const paymentService = require('../services/paymentService');
+const { isValidCoordinates } = require('../utils/validation');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -24,6 +24,13 @@ router.post('/create-order', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'Invalid tier. Must be 1, 2, or 3' });
         }
 
+        const lat = typeof latitude === 'string' ? parseFloat(latitude) : latitude;
+        const lng = typeof longitude === 'string' ? parseFloat(longitude) : longitude;
+
+        if (!isValidCoordinates(lat, lng)) {
+            return res.status(400).json({ error: 'Valid latitude and longitude are required' });
+        }
+
         // Get price for tier
         const amountPaise = paymentService.getPriceForTier(chargeTier);
         const hospitalCount = paymentService.getHospitalCountForTier(chargeTier);
@@ -34,8 +41,8 @@ router.post('/create-order', authMiddleware, async (req, res) => {
             symptoms: symptoms || '',
             message: message || '',
             chargeTier,
-            userLatitude: parseFloat(latitude),
-            userLongitude: parseFloat(longitude)
+            userLatitude: lat,
+            userLongitude: lng
         });
 
         // Create Razorpay order
@@ -53,8 +60,8 @@ router.post('/create-order', authMiddleware, async (req, res) => {
 
         // Find hospitals that will be notified
         const hospitals = Hospital.findNearby(
-            parseFloat(latitude),
-            parseFloat(longitude),
+            lat,
+            lng,
             15, // 15km radius
             hospitalCount
         );
@@ -102,6 +109,20 @@ router.post('/verify', authMiddleware, async (req, res) => {
             return res.status(404).json({ error: 'Payment not found' });
         }
 
+        // Bind the payment to the alert: the alertId must match the one the order was created for
+        if (payment.alert_id !== alertId) {
+            return res.status(400).json({ error: 'Alert does not match this payment order' });
+        }
+
+        // Ensure the alert belongs to the current user
+        const alert = Alert.findById(alertId);
+        if (!alert) {
+            return res.status(404).json({ error: 'Alert not found' });
+        }
+        if (alert.user_id !== req.user.userId) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
         // Verify signature
         const isValid = paymentService.verifyPayment(orderId, paymentId, signature);
         if (!isValid) {
@@ -112,11 +133,8 @@ router.post('/verify', authMiddleware, async (req, res) => {
         // Update payment status
         Payment.updateStatus(payment.id, 'completed', paymentId);
 
-        // Get alert and update status
-        const alert = Alert.findById(alertId);
-        if (alert) {
-            Alert.updateStatus(alertId, 'payment_verified');
-        }
+        // Update alert status
+        Alert.updateStatus(alertId, 'payment_verified');
 
         res.json({
             success: true,

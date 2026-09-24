@@ -36,7 +36,7 @@ router.post('/register', async (req, res) => {
 
         // Generate token
         const token = jwt.sign(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: user.email, role: user.role || 'member' },
             config.jwtSecret,
             { expiresIn: '7d' }
         );
@@ -87,7 +87,7 @@ router.post('/login', async (req, res) => {
 
         // Generate token
         const token = jwt.sign(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: user.email, role: user.role || 'member' },
             config.jwtSecret,
             { expiresIn: '7d' }
         );

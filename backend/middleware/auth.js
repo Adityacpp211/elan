@@ -50,4 +50,17 @@ function optionalAuth(req, res, next) {
     next();
 }
 
-module.exports = { authMiddleware, optionalAuth };
+// Require one of the given roles (must be used after authMiddleware)
+function requireRole(...roles) {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        next();
+    };
+}
+
+module.exports = { authMiddleware, optionalAuth, requireRole };

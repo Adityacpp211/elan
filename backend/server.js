@@ -1,8 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const config = require('./config/config');
 const { initializeDatabase } = require('./models/database');
+const { apiLimiter, authLimiter, emergencyLimiter } = require('./middleware/rateLimit');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -75,53 +75,69 @@ function seedHospitals() {
 }
 
 // Create Express app
-const app = express();
+function createApp() {
+    const app = express();
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+    // Middleware
+    app.use(cors());
+    app.use(express.json());
 
-// Request logging
-app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} | ${req.method} ${req.path}`);
-    next();
-});
-
-// Health check
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        service: 'CardioAid Backend',
-        timestamp: new Date().toISOString()
+    // Request logging
+    app.use((req, res, next) => {
+        if (process.env.NODE_ENV !== 'test') {
+            console.log(`${new Date().toISOString()} | ${req.method} ${req.path}`);
+        }
+        next();
     });
-});
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/hospitals', hospitalsRoutes);
-app.use('/api/payments', paymentsRoutes);
-app.use('/api/alerts', alertsRoutes);
-app.use('/api/records', recordsRoutes);
+    // Rate limiting
+    app.use('/api/auth/register', authLimiter);
+    app.use('/api/auth/login', authLimiter);
+    app.use('/api/alerts/send', emergencyLimiter);
+    app.use('/api', apiLimiter);
 
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
-});
+    // Health check
+    app.get('/health', (req, res) => {
+        res.json({
+            status: 'ok',
+            service: 'CardioAid Backend',
+            timestamp: new Date().toISOString()
+        });
+    });
 
-// Error handler
-app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-});
+    // API Routes
+    app.use('/api/auth', authRoutes);
+    app.use('/api/hospitals', hospitalsRoutes);
+    app.use('/api/payments', paymentsRoutes);
+    app.use('/api/alerts', alertsRoutes);
+    app.use('/api/records', recordsRoutes);
+
+    // 404 handler
+    app.use((req, res) => {
+        res.status(404).json({ error: 'Endpoint not found' });
+    });
+
+    // Error handler
+    app.use((err, req, res, next) => {
+        console.error('Server error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    });
+
+    return app;
+}
+
+// Initialize database and seed data (idempotent)
+async function initialize() {
+    await initializeDatabase();
+    seedHospitals();
+}
 
 // Start server (async to wait for database)
 async function startServer() {
     try {
-        // Initialize database first
-        await initializeDatabase();
+        await initialize();
 
-        // Seed data
-        seedHospitals();
+        const app = createApp();
 
         // Start listening
         app.listen(config.port, () => {
@@ -132,19 +148,6 @@ async function startServer() {
 ║  Status:    Running                                ║
 ║  Port:      ${config.port}                                    ║
 ║  Time:      ${new Date().toISOString()}     ║
-╠════════════════════════════════════════════════════╣
-║  API Endpoints:                                    ║
-║    POST /api/auth/register    - Register user      ║
-║    POST /api/auth/login       - Login user         ║
-║    POST /api/auth/location    - Update location    ║
-║    GET  /api/hospitals/nearby - Find hospitals     ║
-║    POST /api/payments/create-order - Payment order ║
-║    POST /api/payments/verify  - Verify payment     ║
-║    POST /api/alerts/send      - Send emergency     ║
-║    GET  /api/alerts/history   - Alert history      ║
-║    CRUD /api/records/patients - Patient records    ║
-║    CRUD /api/records/vitals   - Vital readings     ║
-║    CRUD /api/records/reports  - Medical reports    ║
 ╚════════════════════════════════════════════════════╝
       `);
         });
@@ -154,4 +157,10 @@ async function startServer() {
     }
 }
 
-startServer();
+const app = createApp();
+
+module.exports = { app, createApp, initialize, seedHospitals, startServer };
+
+if (require.main === module) {
+    startServer();
+}
