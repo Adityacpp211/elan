@@ -1,4 +1,4 @@
-# 🎯 CardioAid Presentation Guide - 5 Members (1 Hour)
+# 🎯 Élan Presentation Guide - 5 Members (1 Hour)
 
 **Time Allocation: ~12 minutes per person**
 
@@ -10,7 +10,7 @@
 **Key Points to Cover:**
 
 ### 1. Project Introduction (3 min)
-- CardioAid is an **Emergency Cardiac Care System**
+- Élan is an **Emergency Cardiac Care System**
 - Mission: *"Bridging the critical gap between cardiac emergencies and medical response"*
 - Problem Statement: Every second counts in cardiac emergencies
 - Target Area: Shravanabelagola, Karnataka
@@ -257,7 +257,7 @@ Real-time vital signs monitoring:
 
 ## 🏆 **Key Differentiators to Highlight**
 
-| Feature | CardioAid | Traditional Methods |
+| Feature | Élan | Traditional Methods |
 |---------|-----------|---------------------|
 | Response Time | **< 30 seconds** | Several minutes |
 | Hospital Selection | **Automatic (GPS proximity)** | Manual lookup |
@@ -272,7 +272,7 @@ Real-time vital signs monitoring:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    CardioAid Ecosystem                      │
+│                      Élan Ecosystem                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │   ┌─────────────┐         ┌─────────────┐                  │
@@ -299,7 +299,7 @@ Real-time vital signs monitoring:
 
 ## 🎤 **Closing Statement**
 
-> *"Every second counts in a cardiac emergency. CardioAid ensures those seconds are never wasted."*
+> *"Every second counts in a cardiac emergency. Élan ensures those seconds are never wasted."*
 
 ### Summary Points:
 ✅ **Reduces** emergency response time  
@@ -323,5 +323,5 @@ Real-time vital signs monitoring:
 
 **Good luck with your presentation! 🚀**
 
-*CardioAid - Emergency Cardiac Care System*
+*Élan - Emergency Cardiac Care System*
 *Version 1.0.0 | Built with Flutter & Node.js*

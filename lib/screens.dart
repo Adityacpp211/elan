@@ -1,4 +1,4 @@
-// CardioAid — Screens
+// Élan — Screens
 // Redesigned with the AppTheme design system.
 
 import 'dart:async';
@@ -276,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text("New to CardioAid?",
+                  Text("New to Élan?",
                       style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(width: 4),
                   TextButton(
@@ -1142,7 +1142,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             orderId: orderId as String,
             amountPaise: amountPaise as int,
             email: user?.email ?? '',
-            name: user?.name ?? 'CardioAid User',
+            name: user?.name ?? 'Élan User',
           );
 
           if (!payment.success) {
@@ -1361,7 +1361,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       'order_id': orderId,
       'amount': amountPaise,
       'currency': 'INR',
-      'name': 'CardioAid',
+      'name': 'Élan',
       'description': 'Emergency cardiac alert',
       'prefill': {
         if (email.isNotEmpty) 'email': email,

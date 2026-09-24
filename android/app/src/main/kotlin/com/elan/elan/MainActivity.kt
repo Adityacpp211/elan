@@ -1,4 +1,4 @@
-package com.cardioaid.cardio_aid
+package com.elan.elan
 
 import io.flutter.embedding.android.FlutterActivity
 

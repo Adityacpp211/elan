@@ -100,7 +100,7 @@ function createApp() {
     app.get('/health', (req, res) => {
         res.json({
             status: 'ok',
-            service: 'CardioAid Backend',
+            service: 'Élan Backend',
             timestamp: new Date().toISOString()
         });
     });
@@ -143,7 +143,7 @@ async function startServer() {
         app.listen(config.port, () => {
             console.log(`
 ╔════════════════════════════════════════════════════╗
-║          🫀 CardioAid Backend Server               ║
+║          🫀 Élan Backend Server               ║
 ╠════════════════════════════════════════════════════╣
 ║  Status:    Running                                ║
 ║  Port:      ${config.port}                                    ║

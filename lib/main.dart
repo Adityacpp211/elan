@@ -1,4 +1,4 @@
-// CardioAid — Emergency Cardiac Care System
+// Élan — Emergency Cardiac Care System
 // Entry point & splash.
 
 import 'package:flutter/material.dart';
@@ -13,16 +13,16 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AuthService().checkAutoLogin();
   ConnectionStatus().startMonitoring();
-  runApp(const CardioAidApp());
+  runApp(const ElanApp());
 }
 
-class CardioAidApp extends StatelessWidget {
-  const CardioAidApp({super.key});
+class ElanApp extends StatelessWidget {
+  const ElanApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CardioAid',
+      title: 'Élan',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
       home: const SplashScreen(),
@@ -160,7 +160,7 @@ class _SplashScreenState extends State<SplashScreen>
                 FadeTransition(
                   opacity: _fadeAnimation,
                   child: Text(
-                    'CardioAid',
+                    'Élan',
                     style: Theme.of(context).textTheme.displayLarge?.copyWith(
                           letterSpacing: 0.5,
                         ),

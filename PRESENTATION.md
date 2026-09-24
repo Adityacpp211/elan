@@ -1,11 +1,11 @@
-# CardioAid 🫀
+# Élan 🫀
 ## Emergency Cardiac Care System
 
 ---
 
 # 📋 Project Overview
 
-**CardioAid** is a comprehensive **Emergency Cardiac Care System** designed to provide rapid response and coordination during cardiac emergencies. The application connects patients with nearby hospitals through an intelligent alert system, ensuring timely medical intervention.
+**Élan** is a comprehensive **Emergency Cardiac Care System** designed to provide rapid response and coordination during cardiac emergencies. The application connects patients with nearby hospitals through an intelligent alert system, ensuring timely medical intervention.
 
 ### 🎯 Mission Statement
 > *"Bridging the critical gap between cardiac emergencies and medical response through technology"*
@@ -16,7 +16,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    CardioAid Ecosystem                      │
+│                      Élan Ecosystem                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │   ┌─────────────┐         ┌─────────────┐                  │
@@ -99,7 +99,7 @@ The central hub of the application featuring:
 ---
 
 ## 4️⃣ Emergency Screen
-The core feature of CardioAid:
+The core feature of Élan:
 
 ### Alert Tier System
 | Tier | Cost | Hospitals Notified |
@@ -391,7 +391,7 @@ flutter run
 ### Scenario: Cardiac Emergency
 
 1. **User Experience Symptoms**
-   - Opens CardioAid app
+   - Opens Élan app
    - Navigates to Emergency Screen
 
 2. **Sends Alert**
@@ -417,7 +417,7 @@ flutter run
 
 # 🏆 Key Differentiators
 
-| Feature | CardioAid | Traditional |
+| Feature | Élan | Traditional |
 |---------|-----------|-------------|
 | Response Time | **< 30 seconds** | Minutes |
 | Hospital Selection | **Automatic proximity** | Manual |
@@ -430,7 +430,7 @@ flutter run
 
 # 📝 Summary
 
-**CardioAid** is a comprehensive emergency cardiac care solution that:
+**Élan** is a comprehensive emergency cardiac care solution that:
 
 ✅ **Reduces** emergency response time  
 ✅ **Automates** hospital notification  
@@ -440,7 +440,7 @@ flutter run
 ✅ **Integrates** payment processing seamlessly  
 
 ### Vision
-> *"Every second counts in a cardiac emergency. CardioAid ensures those seconds are never wasted."*
+> *"Every second counts in a cardiac emergency. Élan ensures those seconds are never wasted."*
 
 ---
 
@@ -448,7 +448,7 @@ flutter run
 
 ## Questions?
 
-**CardioAid** - *Emergency Cardiac Care System*
+**Élan** - *Emergency Cardiac Care System*
 
 ---
 

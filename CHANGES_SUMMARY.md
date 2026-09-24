@@ -1,4 +1,4 @@
-# CardioAid App - Changes Summary
+# Élan App - Changes Summary
 
 ## ✅ All Tasks Completed
 

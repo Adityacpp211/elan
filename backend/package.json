@@ -1,7 +1,7 @@
 {
-  "name": "cardio-aid-backend",
+  "name": "elan-backend",
   "version": "1.0.0",
-  "description": "Backend server for CardioAid Emergency Cardiac Care System",
+  "description": "Backend server for Élan Emergency Cardiac Care System",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -26,6 +26,6 @@
     "emergency",
     "healthcare"
   ],
-  "author": "CardioAid",
+  "author": "Élan",
   "license": "MIT"
 }

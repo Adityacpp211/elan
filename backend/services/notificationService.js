@@ -225,7 +225,7 @@ async function sendEmergencyEmail(hospital, alertData) {
         <p style="margin-bottom: 24px;">
           <a href="${googleMapsUrl}" style="background-color: #c62828; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 4px; display: inline-block;">Open in Google Maps</a>
         </p>
-        <p style="color: #757575; font-size: 12px;">This is an automated message from the CardioAid Emergency Cardiac Care System. Please prepare your emergency response team.</p>
+        <p style="color: #757575; font-size: 12px;">This is an automated message from the Élan Emergency Cardiac Care System. Please prepare your emergency response team.</p>
       </div>
     </div>
     `;

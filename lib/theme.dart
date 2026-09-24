@@ -1,4 +1,4 @@
-// CardioAid Design System
+// Élan Design System
 // Typography: Space Grotesk (display) + Manrope (body)
 
 import 'package:flutter/material.dart';
@@ -290,7 +290,7 @@ class AppBackground extends StatelessWidget {
   }
 }
 
-/// The CardioAid brand mark — a rounded tile with a soft glow.
+/// The Élan brand mark — a rounded tile with a soft glow.
 class BrandMark extends StatelessWidget {
   const BrandMark({super.key, this.size = 56, this.color});
   final double size;

@@ -2,7 +2,7 @@ require('dotenv').config();
 
 module.exports = {
   port: process.env.PORT || 3000,
-  jwtSecret: process.env.JWT_SECRET || 'cardioaid-dev-secret-key',
+  jwtSecret: process.env.JWT_SECRET || 'elan-dev-secret-key',
   
   firebase: {
     serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || './config/firebase-service-account.json'
@@ -19,7 +19,7 @@ module.exports = {
     secure: process.env.SMTP_SECURE === 'true',
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
-    from: process.env.SMTP_FROM || 'CardioAid <no-reply@cardioaid.app>'
+    from: process.env.SMTP_FROM || 'Élan <no-reply@elan.app>'
   },
   
   alertPricing: {

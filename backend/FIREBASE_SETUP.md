@@ -8,7 +8,7 @@ Firebase Cloud Messaging is **completely FREE** with no message limits. Here's h
 
 1. Go to [Firebase Console](https://console.firebase.google.com/)
 2. Click **"Create a project"** (or "Add project")
-3. Enter project name: `CardioAid` (any name works)
+3. Enter project name: `Élan` (any name works)
 4. **Disable** Google Analytics (not needed, keeps it simpler)
 5. Click **Create project**
 6. Wait for project creation → Click **Continue**
@@ -18,9 +18,9 @@ Firebase Cloud Messaging is **completely FREE** with no message limits. Here's h
 ## Step 2: Add Android App
 
 1. On project dashboard, click **Android icon** (🤖)
-2. Enter Android package name: `com.example.cardio_aid`
+2. Enter Android package name: `com.elan.elan`
    - Find this in `android/app/build.gradle` under `applicationId`
-3. App nickname: `CardioAid` (optional)
+3. App nickname: `Élan` (optional)
 4. Debug signing certificate: Skip for now (optional)
 5. Click **Register app**
 6. Download `google-services.json`

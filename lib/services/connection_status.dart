@@ -1,4 +1,4 @@
-// CardioAid — Server connectivity monitor.
+// Élan — Server connectivity monitor.
 // Periodically pings the backend and exposes a ValueNotifier so the UI can
 // reflect whether the app is syncing online or running in local/offline mode.
 

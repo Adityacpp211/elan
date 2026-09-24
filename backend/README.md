@@ -1,6 +1,6 @@
-# CardioAid Backend
+# Élan Backend
 
-Backend server for the CardioAid Emergency Cardiac Care System.
+Backend server for the Élan Emergency Cardiac Care System.
 
 ## Quick Start
 
@@ -93,7 +93,7 @@ SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=your-email@gmail.com
 SMTP_PASS=your-app-password
-SMTP_FROM=CardioAid <no-reply@cardioaid.app>
+SMTP_FROM=Élan <no-reply@elan.app>
 
 # Alert pricing (in paise - 100 paise = 1 INR)
 ALERT_TIER_1_PRICE=100
@@ -112,7 +112,7 @@ ALERT_TIER_3_PRICE=300
 ## Test Database
 
 Tests run against an isolated SQLite file in the OS temp directory (set via
-`CARDIOAID_DB_PATH`) — the production `data/cardioaid.db` is left untouched.
+`ELAN_DB_PATH`) — the production `data/elan.db` is left untouched.
 
 ## Security
 

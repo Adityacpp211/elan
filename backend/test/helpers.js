@@ -12,8 +12,8 @@ for (const method of ['log', 'info', 'warn', 'error']) {
     console[method] = () => {};
 }
 
-const DB_PATH = path.join(os.tmpdir(), `cardioaid-test-${process.pid}-${Date.now()}.db`);
-process.env.CARDIOAID_DB_PATH = DB_PATH;
+const DB_PATH = path.join(os.tmpdir(), `elan-test-${process.pid}-${Date.now()}.db`);
+process.env.ELAN_DB_PATH = DB_PATH;
 
 const { app, initialize } = require('../server');
 

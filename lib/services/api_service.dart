@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-/// API Service for CardioAid Backend
+/// API Service for Élan Backend
 /// Handles all communication with the Node.js backend server
 class ApiService {
   static final ApiService _instance = ApiService._internal();

@@ -1,4 +1,4 @@
-// CardioAid — Models, Services & Utilities
+// Élan — Models, Services & Utilities
 
 import 'package:flutter/material.dart';
 import 'dart:math';
@@ -566,7 +566,7 @@ class DatabaseService {
     // Initialize User Profile
     _currentUser = UserProfile(
       name: 'Dr. Sarah Johnson',
-      email: 'sarah.johnson@cardioaid.com',
+      email: 'sarah.johnson@elan.app',
       role: 'Emergency Physician',
       employeeId: 'EMP-2024-001',
       department: 'Emergency Medicine',
