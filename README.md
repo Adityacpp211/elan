@@ -32,6 +32,7 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 - **Tiered response** — Choose how wide the net goes: 1, 3, or up to 10 nearby hospitals notified per alert.
 - **Location-aware hospitals** — GPS-driven search surfaces verified hospitals ranked by distance, backed by a live hospital database on the backend.
 - **Secure payments** — Tiered alert pricing with a **wallet** system and the **Razorpay** gateway for real transactions.
+- **Hospital receiver desk** — A role-based console for hospital staff: live inbox, one-tap accept or pass, an arrival estimate the patient sees, and a facility profile.
 - **Hospital alert feed** — Track every alert you've sent, its status, and which hospitals acknowledged it.
 - **Patient records** — Manage patient profiles with admission details, blood type, room, and condition.
 - **Vitals monitoring** — Log and view heart rate, blood pressure, temperature, and oxygen saturation over time.
@@ -65,7 +66,8 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 2. The app resolves the user's GPS location and the nearest hospitals.
 3. The backend creates a payment order (wallet or Razorpay) and verifies it.
 4. Notified hospitals receive an **FCM push** and an **email** with symptoms, exact coordinates, and a Google Maps deep link.
-5. The alert is logged to history with live status and acknowledgement tracking.
+5. Duty staff open the **receiver console** and accept the alert, optionally giving an arrival estimate.
+6. The patient is notified of the acceptance and the ETA, and can watch the alert move to `acknowledged` in their history.
 
 ---
 
@@ -124,6 +126,20 @@ flutter test
 > (Android emulator → host loopback). Point [`lib/services/api_service.dart`](lib/services/api_service.dart)
 > at your backend URL for a physical device.
 
+### Trying the hospital receiver desk
+
+Sign out of a member session and sign back in on the **Hospital staff** tab. A
+dev/test server seeds a duty desk for the first hospital:
+
+```
+duty@bahubali-hospital.com  /  elan-demo-2026
+```
+
+Sign-up also accepts new hospital staff, who pick their facility from the
+hospital list. Hospital staff land in the receiver console; members land on the
+dashboard. Seeding is skipped in production and can be disabled with
+`SEED_RECEIVER_STAFF=false`.
+
 ---
 
 ## Project Structure
@@ -136,14 +152,14 @@ flutter test
 │   ├── config/            # App config & env parsing
 │   ├── models/            # SQLite schema + data access
 │   ├── services/          # FCM, email (SMTP), Razorpay integration
-│   ├── routes/            # Auth, hospitals, alerts, payments, records
+│   ├── routes/            # Auth, hospitals, alerts, payments, records, receiver
 │   └── server.js          # Express entry point
 ├── lib/
 │   ├── main.dart          # Entry point + animated splash
 │   ├── theme.dart         # Design system, brand mark, shared widgets
 │   ├── models.dart        # Data models + local service layer
 │   ├── screens.dart       # All screens & flows
-│   └── services/          # API client + connectivity monitoring
+│   └── services/          # API client, receiver sync, connectivity monitoring
 └── test/                  # Widget tests
 ```
 
@@ -162,7 +178,7 @@ Full API reference and deployment notes: [`backend/README.md`](backend/README.md
 - [x] Core SOS alert network with tiered hospital dispatch
 - [x] Payments (wallet + Razorpay) and alert history
 - [x] Patient records, vitals monitoring, and medical reports
-- [ ] Hospital-side receiver app with live acknowledgement feed
+- [x] Hospital-side receiver app with live acknowledgement feed
 - [ ] Real-time ambulance ETA & route tracking
 - [ ] Multilingual support (ES / FR / HI)
 

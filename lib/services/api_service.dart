@@ -62,8 +62,8 @@ class ApiService {
   /// Get current user profile from the server
   Future<ApiResponse> getProfile() async {
     try {
-      final response =
-          await http.get(Uri.parse('$baseUrl/api/auth/me'), headers: _headers(auth: true));
+      final response = await http.get(Uri.parse('$baseUrl/api/auth/me'),
+          headers: _headers(auth: true));
       final data = _tryDecode(response.body);
       if (response.statusCode == 200) {
         return ApiResponse.success(data);
@@ -113,6 +113,8 @@ class ApiService {
     required String name,
     required String email,
     required String password,
+    String role = 'member',
+    String? hospitalId,
   }) async {
     try {
       final response = await http.post(
@@ -122,6 +124,9 @@ class ApiService {
           'name': name,
           'email': email,
           'password': password,
+          'role': role,
+          if (hospitalId != null && hospitalId.isNotEmpty)
+            'hospitalId': hospitalId,
         }),
       );
 
@@ -133,7 +138,7 @@ class ApiService {
         return ApiResponse.success(data);
       }
 
-      return ApiResponse.error(data['error'] ?? 'Registration failed');
+      return ApiResponse.error(data?['error'] ?? 'Registration failed');
     } catch (e) {
       return ApiResponse.error('Network error: $e');
     }
@@ -219,6 +224,24 @@ class ApiService {
   }
 
   // ==================== HOSPITAL ENDPOINTS ====================
+
+  /// Get every verified hospital (used to pick a facility when signing up as staff)
+  Future<ApiResponse> getHospitals() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/api/hospitals'),
+          headers: _headers());
+
+      final data = _tryDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+
+      return ApiResponse.error(data?['error'] ?? 'Failed to fetch hospitals');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
 
   /// Get nearby hospitals
   Future<ApiResponse> getNearbyHospitals({
@@ -375,6 +398,116 @@ class ApiService {
       }
 
       return ApiResponse.error(data['error'] ?? 'Failed to fetch alert');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  // ==================== HOSPITAL RECEIVER ENDPOINTS ====================
+
+  /// Alerts addressed to the signed-in hospital
+  Future<ApiResponse> getReceiverInbox({String? status, int limit = 50}) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/receiver/inbox').replace(
+        queryParameters: {
+          if (status != null && status != 'all') 'status': status,
+          'limit': '$limit',
+        },
+      );
+
+      final response = await http.get(uri, headers: _headers(auth: true));
+      final data = _tryDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+
+      return ApiResponse.error(
+          data?['error'] ?? 'Failed to fetch receiver inbox');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Get a single alert as the hospital sees it
+  Future<ApiResponse> getReceiverAlert(String alertId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/receiver/inbox/$alertId'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+
+      return ApiResponse.error(data?['error'] ?? 'Failed to fetch alert');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Take the alert: the patient sees the hospital as acknowledged
+  Future<ApiResponse> acknowledgeReceiverAlert(
+    String alertId, {
+    int? etaMinutes,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/receiver/alerts/$alertId/acknowledge'),
+        headers: _headers(auth: true),
+        body: jsonEncode({if (etaMinutes != null) 'etaMinutes': etaMinutes}),
+      );
+      final data = _tryDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+
+      return ApiResponse.error(data?['error'] ?? 'Failed to acknowledge alert');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// Pass the alert on to the other notified hospitals
+  Future<ApiResponse> declineReceiverAlert(String alertId,
+      {String? reason}) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/receiver/alerts/$alertId/decline'),
+        headers: _headers(auth: true),
+        body: jsonEncode(
+            {if (reason != null && reason.isNotEmpty) 'reason': reason}),
+      );
+      final data = _tryDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+
+      return ApiResponse.error(data?['error'] ?? 'Failed to decline alert');
+    } catch (e) {
+      return ApiResponse.error('Network error: $e');
+    }
+  }
+
+  /// The facility the signed-in staff member works for
+  Future<ApiResponse> getReceiverProfile() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/receiver/profile'),
+        headers: _headers(auth: true),
+      );
+      final data = _tryDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return ApiResponse.success(data);
+      }
+
+      return ApiResponse.error(
+          data?['error'] ?? 'Failed to fetch receiver profile');
     } catch (e) {
       return ApiResponse.error('Network error: $e');
     }

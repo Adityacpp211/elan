@@ -2,15 +2,65 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Hospital = require('../models/Hospital');
 const config = require('../config/config');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Roles a user may claim for themselves at signup. 'admin' is deliberately
+// excluded — admin accounts are provisioned out of band.
+const SELF_SERVICE_ROLES = ['member', 'hospital'];
+
+function resolveRole(role, hospitalId) {
+    if (!role) return { role: 'member', hospitalId: null };
+
+    if (!SELF_SERVICE_ROLES.includes(role)) {
+        return { error: 'Invalid role' };
+    }
+
+    if (role === 'hospital') {
+        if (!hospitalId) {
+            return { error: 'hospitalId is required for hospital staff accounts' };
+        }
+        const hospital = Hospital.findById(hospitalId);
+        if (!hospital || !hospital.is_active) {
+            return { error: 'Unknown or inactive hospital' };
+        }
+        return { role, hospitalId: hospital.id };
+    }
+
+    return { role, hospitalId: null };
+}
+
+function publicUser(user) {
+    return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone || '',
+        role: user.role || 'member',
+        hospitalId: user.hospital_id || null
+    };
+}
+
+function signToken(user) {
+    return jwt.sign(
+        {
+            userId: user.id,
+            email: user.email,
+            role: user.role || 'member',
+            hospitalId: user.hospital_id || null
+        },
+        config.jwtSecret,
+        { expiresIn: '7d' }
+    );
+}
+
 // Register new user
 router.post('/register', async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password, role, hospitalId } = req.body;
 
         // Validation
         if (!name || !email || !password) {
@@ -19,6 +69,11 @@ router.post('/register', async (req, res) => {
 
         if (password.length < 6) {
             return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+
+        const resolved = resolveRole(role, hospitalId);
+        if (resolved.error) {
+            return res.status(400).json({ error: resolved.error });
         }
 
         // Check if email exists
@@ -32,26 +87,16 @@ router.post('/register', async (req, res) => {
         const passwordHash = await bcrypt.hash(password, saltRounds);
 
         // Create user
-        const user = User.create(name, email.toLowerCase(), passwordHash);
-
-        // Generate token
-        const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role || 'member' },
-            config.jwtSecret,
-            { expiresIn: '7d' }
-        );
+        const user = User.create(name, email.toLowerCase(), passwordHash, {
+            role: resolved.role,
+            hospitalId: resolved.hospitalId
+        });
 
         res.status(201).json({
             message: 'Registration successful',
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone || '',
-                role: user.role || 'member'
-            },
-            requiresLocation: true // Frontend should request location after login
+            token: signToken(user),
+            user: publicUser(user),
+            requiresLocation: resolved.role === 'member' // Members broadcast their location
         });
     } catch (error) {
         console.error('Registration error:', error);
@@ -85,24 +130,11 @@ router.post('/login', async (req, res) => {
             User.updateFcmToken(user.id, fcmToken);
         }
 
-        // Generate token
-        const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role || 'member' },
-            config.jwtSecret,
-            { expiresIn: '7d' }
-        );
-
         res.json({
             message: 'Login successful',
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone || '',
-                role: user.role || 'member'
-            },
-            requiresLocation: true // Frontend should request location after login
+            token: signToken(user),
+            user: publicUser(user),
+            requiresLocation: (user.role || 'member') === 'member'
         });
     } catch (error) {
         console.error('Login error:', error);
@@ -161,12 +193,25 @@ router.get('/me', authMiddleware, (req, res) => {
         return res.status(404).json({ error: 'User not found' });
     }
 
+    const hospital = user.hospital_id ? Hospital.findById(user.hospital_id) : null;
+
     res.json({
         id: user.id,
         name: user.name,
         email: user.email,
         phone: user.phone || '',
         role: user.role || 'member',
+        hospitalId: user.hospital_id || null,
+        hospital: hospital
+            ? {
+                id: hospital.id,
+                name: hospital.name,
+                address: hospital.address,
+                phone: hospital.phone,
+                latitude: hospital.latitude,
+                longitude: hospital.longitude
+            }
+            : null,
         location: user.last_latitude ? {
             latitude: user.last_latitude,
             longitude: user.last_longitude,
@@ -195,13 +240,7 @@ router.put('/me', authMiddleware, (req, res) => {
 
         res.json({
             message: 'Profile updated',
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone || '',
-                role: user.role || 'member'
-            }
+            user: publicUser(user)
         });
     } catch (error) {
         console.error('Profile update error:', error);

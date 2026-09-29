@@ -38,8 +38,11 @@ router.post('/send', authMiddleware, async (req, res) => {
             });
         }
 
-        // Check if alert already sent
-        if (alert.status === 'sent') {
+        // Check if alert already sent. The aggregate status is not a reliable
+        // guard on its own — a receiver can move it to 'acknowledged' or
+        // 'unacknowledged' — so rely on the dispatch rows.
+        const dispatched = Alert.getAlertHospitals(alert.id);
+        if (alert.status === 'sent' || dispatched.length > 0) {
             return res.status(400).json({ error: 'Alert already sent' });
         }
 
@@ -133,7 +136,10 @@ router.get('/history', authMiddleware, (req, res) => {
                     name: h.hospital_name,
                     phone: h.hospital_phone,
                     notificationSent: h.notification_sent === 1,
-                    acknowledged: h.acknowledged === 1
+                    acknowledged: h.acknowledged === 1,
+                    declined: h.declined === 1,
+                    etaMinutes: h.eta_minutes,
+                    respondedAt: h.responded_at
                 })),
                 createdAt: alert.created_at
             };
@@ -182,7 +188,11 @@ router.get('/:id', authMiddleware, (req, res) => {
                 notificationSent: h.notification_sent === 1,
                 sentAt: h.sent_at,
                 acknowledged: h.acknowledged === 1,
-                acknowledgedAt: h.acknowledged_at
+                acknowledgedAt: h.acknowledged_at,
+                declined: h.declined === 1,
+                declinedAt: h.declined_at,
+                declineReason: h.decline_reason,
+                etaMinutes: h.eta_minutes
             })),
             createdAt: alert.created_at
         });

@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const bcrypt = require('bcryptjs');
 const config = require('./config/config');
 const { initializeDatabase } = require('./models/database');
 const { apiLimiter, authLimiter, emergencyLimiter } = require('./middleware/rateLimit');
@@ -10,9 +11,11 @@ const hospitalsRoutes = require('./routes/hospitals');
 const paymentsRoutes = require('./routes/payments');
 const alertsRoutes = require('./routes/alerts');
 const recordsRoutes = require('./routes/records');
+const receiverRoutes = require('./routes/receiver');
 
 // Import models for seeding
 const Hospital = require('./models/Hospital');
+const User = require('./models/User');
 
 // Seed hospitals if empty
 function seedHospitals() {
@@ -74,6 +77,33 @@ function seedHospitals() {
     }
 }
 
+// Seed one hospital-staff account so the receiver app has something to sign in
+// with on a fresh install. Never runs in production, and never overwrites an
+// account that already exists.
+async function seedReceiverStaff() {
+    if (process.env.NODE_ENV === 'production') return;
+    if (config.seedReceiverStaff === false) return;
+
+    const email = (config.seedReceiverEmail || 'duty@bahubali-hospital.com').toLowerCase();
+    if (User.findByEmail(email)) return;
+
+    const hospitalId = config.seedReceiverHospitalId || Hospital.findAll()[0]?.id;
+    if (!hospitalId) return;
+
+    const password = config.seedReceiverPassword || 'elan-demo-2026';
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const staff = User.create('Duty Officer', email, passwordHash, {
+        role: 'hospital',
+        hospitalId
+    });
+
+    console.log(`🩺 Seeded receiver account: ${staff.email} (hospital ${hospitalId})`);
+    if (process.env.NODE_ENV !== 'test') {
+        console.log(`   Demo password: ${password}`);
+    }
+}
+
 // Create Express app
 function createApp() {
     const app = express();
@@ -111,6 +141,7 @@ function createApp() {
     app.use('/api/payments', paymentsRoutes);
     app.use('/api/alerts', alertsRoutes);
     app.use('/api/records', recordsRoutes);
+    app.use('/api/receiver', receiverRoutes);
 
     // 404 handler
     app.use((req, res) => {
@@ -130,6 +161,7 @@ function createApp() {
 async function initialize() {
     await initializeDatabase();
     seedHospitals();
+    await seedReceiverStaff();
 }
 
 // Start server (async to wait for database)
@@ -159,7 +191,14 @@ async function startServer() {
 
 const app = createApp();
 
-module.exports = { app, createApp, initialize, seedHospitals, startServer };
+module.exports = {
+    app,
+    createApp,
+    initialize,
+    seedHospitals,
+    seedReceiverStaff,
+    startServer
+};
 
 if (require.main === module) {
     startServer();

@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
 import 'theme.dart';
 import 'services/api_service.dart';
+import 'services/receiver_service.dart';
 
 // ==================== NAVIGATION HELPER ====================
 
@@ -48,6 +50,12 @@ String _initials(String? name) {
   return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
       .toUpperCase();
 }
+
+/// Where a session should land: hospital staff get the receiver console,
+/// everyone else the member dashboard.
+Widget homeForSession() => AuthService().isReceiverSession
+    ? const ReceiverConsole()
+    : const Dashboard();
 
 // ==================== SHARED AUTH SHELL ====================
 
@@ -157,8 +165,160 @@ class _AuthField extends StatelessWidget {
 
 // ==================== LOGIN ====================
 
+/// Segmented switch between a member account and a hospital duty-desk account.
+class _RoleToggle extends StatelessWidget {
+  const _RoleToggle({required this.role, required this.onChanged});
+
+  final String role;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.ink.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Row(
+        children: [
+          _RoleToggleTab(
+            label: 'Member',
+            icon: Icons.favorite_rounded,
+            color: AppColors.brand,
+            selected: role == 'member',
+            onTap: () => onChanged('member'),
+          ),
+          _RoleToggleTab(
+            label: 'Hospital staff',
+            icon: Icons.local_hospital_rounded,
+            color: AppColors.alert,
+            selected: role == 'hospital',
+            onTap: () => onChanged('hospital'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleToggleTab extends StatelessWidget {
+  const _RoleToggleTab({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color:
+                selected ? color.withValues(alpha: 0.16) : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(
+              color:
+                  selected ? color.withValues(alpha: 0.45) : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 17, color: selected ? color : AppColors.textMuted),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? color : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Facility picker shown to hospital staff during signup.
+class _HospitalPicker extends StatelessWidget {
+  const _HospitalPicker({
+    required this.hospitals,
+    required this.selectedId,
+    required this.loading,
+    required this.onChanged,
+  });
+
+  final List<HospitalLocation> hospitals;
+  final String? selectedId;
+  final bool loading;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const SizedBox(
+        height: 56,
+        child: Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: AppColors.alert),
+          ),
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<String>(
+      initialValue: selectedId,
+      isExpanded: true,
+      dropdownColor: AppColors.surfaceRaised,
+      decoration: const InputDecoration(
+        labelText: 'Your hospital',
+        prefixIcon: Icon(Icons.local_hospital_rounded, size: 20),
+      ),
+      items: hospitals
+          .map((h) => DropdownMenuItem<String>(
+                value: h.id,
+                child: Text(
+                  h.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+              ))
+          .toList(),
+      onChanged: hospitals.isEmpty ? null : onChanged,
+    );
+  }
+}
+
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.hospitalMode = false});
+
+  /// Pre-selects the hospital staff tab when coming back from signup.
+  final bool hospitalMode;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -170,7 +330,14 @@ class _LoginScreenState extends State<LoginScreen> {
   final _authService = AuthService();
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _hospitalMode = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.hospitalMode) _hospitalMode = true;
+  }
 
   @override
   void dispose() {
@@ -195,6 +362,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (error != null) {
       setState(() => _errorMessage = error);
+    } else if (_authService.isReceiverSession) {
+      // Hospital staff never broadcast their own location — straight to console.
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const ReceiverConsole()),
+      );
     } else {
       _requestLocationAndNavigate();
     }
@@ -235,14 +408,22 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return _AuthShell(
-      eyebrow: 'Emergency cardiac care',
+      eyebrow: _hospitalMode ? 'Receiver desk' : 'Emergency cardiac care',
       title: 'Welcome back',
-      subtitle: 'Sign in to continue to your control centre',
+      subtitle: _hospitalMode
+          ? 'Sign in to receive and respond to Élan alerts'
+          : 'Sign in to continue to your control centre',
       child: SurfaceCard(
         padding: const EdgeInsets.all(AppSpace.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _RoleToggle(
+              role: _hospitalMode ? 'hospital' : 'member',
+              onChanged: (role) =>
+                  setState(() => _hospitalMode = role == 'hospital'),
+            ),
+            const SizedBox(height: 16),
             _AuthField(
               controller: _emailController,
               label: 'Email address',
@@ -283,7 +464,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     onPressed: () => Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => const SignUpScreen())),
+                            builder: (_) =>
+                                SignUpScreen(hospitalMode: _hospitalMode))),
                     child: const Text('Create account'),
                   ),
                 ],
@@ -299,7 +481,10 @@ class _LoginScreenState extends State<LoginScreen> {
 // ==================== SIGN UP ====================
 
 class SignUpScreen extends StatefulWidget {
-  const SignUpScreen({super.key});
+  const SignUpScreen({super.key, this.hospitalMode = false});
+
+  /// Pre-selects the hospital staff tab when arriving from the login screen.
+  final bool hospitalMode;
 
   @override
   State<SignUpScreen> createState() => _SignUpScreenState();
@@ -311,10 +496,51 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _authService = AuthService();
+  final _api = ApiService();
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _isLoading = false;
   String? _errorMessage;
+
+  String _role = 'member';
+  List<HospitalLocation> _hospitals = [];
+  String? _hospitalId;
+  bool _loadingHospitals = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.hospitalMode) _role = 'hospital';
+    _loadHospitals();
+  }
+
+  /// Hospital staff pick their facility at signup, so fetch the live list and
+  /// fall back to the bundled directory if the server is unreachable.
+  Future<void> _loadHospitals() async {
+    setState(() => _loadingHospitals = true);
+
+    final response = await _api.getHospitals();
+    final remote = response.success
+        ? ((response.data?['hospitals'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map((h) => HospitalLocation(
+                  id: (h['id'] as String?) ?? '',
+                  name: (h['name'] as String?) ?? 'Hospital',
+                  address: (h['address'] as String?) ?? '',
+                  phone: (h['phone'] as String?) ?? '',
+                  latitude: (h['latitude'] as num?)?.toDouble() ?? 0,
+                  longitude: (h['longitude'] as num?)?.toDouble() ?? 0,
+                  emergencyContactEmail: '',
+                ))
+            .toList()
+        : <HospitalLocation>[];
+
+    if (!mounted) return;
+    setState(() {
+      _hospitals = remote.isNotEmpty ? remote : DatabaseService().hospitals;
+      _loadingHospitals = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -336,6 +562,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
       _emailController.text,
       _passwordController.text,
       _confirmPasswordController.text,
+      role: _role,
+      hospitalId: _hospitalId,
     );
 
     if (!mounted) return;
@@ -344,30 +572,47 @@ class _SignUpScreenState extends State<SignUpScreen> {
     if (error != null) {
       setState(() => _errorMessage = error);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created — sign in to continue.')),
-      );
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(
+          builder: (_) => LoginScreen(hospitalMode: _role == 'hospital'),
+        ),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isStaff = _role == 'hospital';
+
     return _AuthShell(
       eyebrow: 'Join the network',
       title: 'Create your account',
-      subtitle: 'Set up access to emergency response',
+      subtitle: isStaff
+          ? 'Register the duty desk that receives Élan alerts'
+          : 'Set up access to emergency response',
       child: SurfaceCard(
         padding: const EdgeInsets.all(AppSpace.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _RoleToggle(
+              role: _role,
+              onChanged: (role) => setState(() => _role = role),
+            ),
+            if (isStaff) ...[
+              const SizedBox(height: 16),
+              _HospitalPicker(
+                hospitals: _hospitals,
+                selectedId: _hospitalId,
+                loading: _loadingHospitals,
+                onChanged: (id) => setState(() => _hospitalId = id),
+              ),
+            ],
+            const SizedBox(height: 16),
             _AuthField(
               controller: _nameController,
-              label: 'Full name',
+              label: isStaff ? 'Duty officer name' : 'Full name',
               icon: Icons.badge_outlined,
             ),
             const SizedBox(height: 16),
@@ -431,7 +676,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     onPressed: () => Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => const LoginScreen())),
+                            builder: (_) => LoginScreen(
+                                hospitalMode: _role == 'hospital'))),
                     child: const Text('Sign in'),
                   ),
                 ],
@@ -901,15 +1147,16 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   List<Map<String, dynamic>> get _displayHospitals {
     if (_nearbyHospitals.isNotEmpty) return _nearbyHospitals;
     if (_userLocation == null) return [];
-    return _localHospitals.map((h) => {
-          'name': h.name,
-          'phone': h.phone,
-          'distanceKm': h.distanceTo(_userLocation!),
-        }).toList();
+    return _localHospitals
+        .map((h) => {
+              'name': h.name,
+              'phone': h.phone,
+              'distanceKm': h.distanceTo(_userLocation!),
+            })
+        .toList();
   }
 
-  int get _tierHospitalCount =>
-      _tierInfo[_selectedCharge]!['hospitals'] as int;
+  int get _tierHospitalCount => _tierInfo[_selectedCharge]!['hospitals'] as int;
 
   @override
   void initState() {
@@ -1031,8 +1278,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('Tier $_selectedCharge',
-                          style:
-                              Theme.of(context).textTheme.titleLarge),
+                          style: Theme.of(context).textTheme.titleLarge),
                       Text(
                         price,
                         style: const TextStyle(
@@ -1206,8 +1452,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       } else {
         // Backend unreachable/rejected — fall back to pure local processing
         // using wallet credit so the demo still works offline.
-        final isNetworkIssue = (orderResponse.error ?? '')
-            .startsWith('Network error');
+        final isNetworkIssue =
+            (orderResponse.error ?? '').startsWith('Network error');
         if (!isNetworkIssue) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1226,9 +1472,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       }
 
       // Also save to local database
-      for (int i = 0;
-          i < hospitalCount && i < _localHospitals.length;
-          i++) {
+      for (int i = 0; i < hospitalCount && i < _localHospitals.length; i++) {
         final hospital = _localHospitals[i];
         final alert = HospitalAlert(
           id: '${_currentAlertId}_$i',
@@ -1416,7 +1660,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     eyebrow: 'Navigator',
                     title: 'Your location',
                     trailing: IconButton(
-                      onPressed: _isLoadingLocation ? null : _getCurrentLocation,
+                      onPressed:
+                          _isLoadingLocation ? null : _getCurrentLocation,
                       icon: const Icon(Icons.my_location_rounded, size: 20),
                       color: AppColors.alert,
                     ),
@@ -1499,8 +1744,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     eyebrow: 'Coverage',
                     title: 'Nearby hospitals',
                     trailing: StatusBadge(
-                      label:
-                          '${displayHospitals.length} found',
+                      label: '${displayHospitals.length} found',
                       color: AppColors.alert,
                     ),
                   ),
@@ -1559,8 +1803,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                       overflow: TextOverflow.ellipsis),
                                   const SizedBox(height: 2),
                                   Text(phone,
-                                      style:
-                                          Theme.of(context).textTheme.bodySmall),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
                                 ],
                               ),
                             ),
@@ -1678,12 +1923,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                       final info = _tierInfo[charge]!;
                       return Expanded(
                         child: GestureDetector(
-                          onTap: () =>
-                              setState(() => _selectedCharge = charge),
+                          onTap: () => setState(() => _selectedCharge = charge),
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 160),
-                            margin: EdgeInsets.only(
-                                right: charge == 3 ? 0 : 10),
+                            margin:
+                                EdgeInsets.only(right: charge == 3 ? 0 : 10),
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: isSelected
@@ -1700,8 +1944,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                             child: Stack(
                               children: [
                                 Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       '₹$charge',
@@ -1723,9 +1966,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                     ),
                                     Text(
                                       'hospitals',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall,
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
                                     ),
                                   ],
                                 ),
@@ -1883,8 +2125,9 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
         .toList();
     final message = (alert['message'] as String?) ?? '';
     final tier = (alert['tier'] as int?) ?? 1;
-    final createdAt = DateTime.tryParse((alert['createdAt'] as String?) ?? '') ??
-        DateTime.now();
+    final createdAt =
+        DateTime.tryParse((alert['createdAt'] as String?) ?? '') ??
+            DateTime.now();
     final lat = (alert['location'] is Map
             ? (alert['location']!['latitude'] as num?)?.toStringAsFixed(4)
             : null) ??
@@ -1944,16 +2187,15 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_syncing) ...
-                      [
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: AppColors.alert),
-                        ),
-                        const SizedBox(width: 10),
-                      ],
+                  if (_syncing) ...[
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.alert),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   IconButton(
                     tooltip: 'Sync from server',
                     onPressed: _syncing ? null : _syncAlertHistory,
@@ -1972,8 +2214,8 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                     AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
-                child: ErrorBanner(
-                    message: 'Could not sync alerts from server'),
+                child:
+                    ErrorBanner(message: 'Could not sync alerts from server'),
               ),
             Expanded(
               child: alerts.isEmpty
@@ -2088,8 +2330,10 @@ class _AlertCard extends StatelessWidget {
             ),
             child: Text(
               alert.message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary, height: 1.5),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AppColors.textSecondary, height: 1.5),
             ),
           ),
           const SizedBox(height: 12),
@@ -2126,6 +2370,1137 @@ class _AlertCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ==================== HOSPITAL RECEIVER CONSOLE ====================
+
+class ReceiverConsole extends StatefulWidget {
+  const ReceiverConsole({super.key});
+
+  @override
+  State<ReceiverConsole> createState() => _ReceiverConsoleState();
+}
+
+class _ReceiverConsoleState extends State<ReceiverConsole> {
+  final _receiver = ReceiverService();
+
+  List<ReceiverAlert> _alerts = [];
+  ReceiverHospital? _hospital;
+  ReceiverStats _stats = const ReceiverStats();
+  String _filter = 'all';
+  bool _loading = true;
+  bool _offline = false;
+  String? _error;
+  Timer? _poll;
+
+  static const _pollInterval = Duration(seconds: 20);
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+    _poll = Timer.periodic(_pollInterval, (_) => _refresh(silent: true));
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    // Show the cached inbox immediately, then reconcile with the server.
+    final cached = await _receiver.loadCache();
+    if (!mounted) return;
+    setState(() {
+      _alerts = cached.alerts;
+      _hospital = cached.hospital;
+      _stats = cached.stats;
+    });
+    await _refresh();
+  }
+
+  Future<void> _refresh({bool silent = false}) async {
+    final result = await _receiver.refreshInbox();
+    if (!mounted) return;
+
+    if (result.inbox != null) {
+      setState(() {
+        _alerts = result.inbox!.alerts;
+        _hospital = result.inbox!.hospital ?? _hospital;
+        _stats = result.inbox!.stats;
+        _loading = false;
+        _offline = false;
+        _error = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = false;
+      if (_alerts.isEmpty) {
+        _error = result.error;
+      } else {
+        _offline = true;
+      }
+    });
+
+    if (!silent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.error ?? 'Could not reach the server')),
+      );
+    }
+  }
+
+  List<ReceiverAlert> get _visibleAlerts => _filter == 'all'
+      ? _alerts
+      : _alerts.where((a) => a.status.name == _filter).toList();
+
+  String _relativeTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${time.day}/${time.month}';
+  }
+
+  Future<void> _openDetail(ReceiverAlert alert) async {
+    final updated = await openForResult<ReceiverAlert>(
+      context,
+      ReceiverAlertDetailScreen(alert: alert),
+    );
+    if (!mounted) return;
+
+    if (updated != null) {
+      setState(() {
+        _alerts = _alerts.map((a) => a.id == updated.id ? updated : a).toList();
+        _stats = _recount();
+      });
+    }
+  }
+
+  ReceiverStats _recount() {
+    var pending = 0, acknowledged = 0, declined = 0;
+    for (final alert in _alerts) {
+      switch (alert.status) {
+        case ReceiverAlertStatus.acknowledged:
+          acknowledged++;
+        case ReceiverAlertStatus.declined:
+          declined++;
+        case ReceiverAlertStatus.pending:
+          pending++;
+      }
+    }
+    return ReceiverStats(
+      total: _alerts.length,
+      pending: pending,
+      acknowledged: acknowledged,
+      declined: declined,
+    );
+  }
+
+  Future<void> _acknowledge(ReceiverAlert alert) async {
+    final choice = await _pickEta(context);
+    if (choice == null || !mounted) return;
+
+    final result =
+        await _receiver.acknowledge(alert.id, etaMinutes: choice.minutes);
+    if (!mounted) return;
+
+    if (result.alert == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(result.error ?? 'Could not acknowledge the alert')),
+      );
+      return;
+    }
+
+    setState(() {
+      _alerts =
+          _alerts.map((a) => a.id == alert.id ? result.alert! : a).toList();
+      _stats = _recount();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          choice.minutes == null
+              ? 'Alert acknowledged — the patient has been notified'
+              : 'Acknowledged · the patient was told to expect you in ~${choice.minutes} min',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _decline(ReceiverAlert alert) async {
+    final reason = await _pickDeclineReason(context);
+    if (reason == null || !mounted) return;
+
+    final result = await _receiver.decline(alert.id, reason: reason);
+    if (!mounted) return;
+
+    if (result.alert == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.error ?? 'Could not decline the alert')),
+      );
+      return;
+    }
+
+    setState(() {
+      _alerts =
+          _alerts.map((a) => a.id == alert.id ? result.alert! : a).toList();
+      _stats = _recount();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final staff = AuthService().currentLoggedInUser;
+
+    return AppBackground(
+      glow: AppColors.alert,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Receiver console',
+              title: _hospital?.name ?? 'Duty desk',
+              subtitle: staff?.email,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Facility',
+                    onPressed: () =>
+                        open(context, const ReceiverFacilityScreen()),
+                    icon: const Icon(Icons.apartment_rounded, size: 20),
+                    color: AppColors.alert,
+                  ),
+                  IconButton(
+                    tooltip: 'Refresh',
+                    onPressed: _loading ? null : () => _refresh(),
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    color: AppColors.alert,
+                  ),
+                ],
+              ),
+            ),
+            if (_offline)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                      color: AppColors.warning.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.cloud_off_rounded,
+                        size: 16, color: AppColors.warning),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        'Offline — showing the last alerts this desk received',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: AppColors.warning),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.xl, AppSpace.md, AppSpace.xl, AppSpace.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: StatValue(
+                          label: 'Awaiting',
+                          value: '${_stats.pending}',
+                          color: _stats.pending > 0
+                              ? AppColors.brand
+                              : AppColors.textSecondary,
+                          icon: Icons.notifications_active_rounded,
+                        ),
+                      ),
+                      Expanded(
+                        child: StatValue(
+                          label: 'Accepted',
+                          value: '${_stats.acknowledged}',
+                          color: AppColors.success,
+                          icon: Icons.check_circle_rounded,
+                        ),
+                      ),
+                      Expanded(
+                        child: StatValue(
+                          label: 'Passed',
+                          value: '${_stats.declined}',
+                          color: AppColors.textSecondary,
+                          icon: Icons.do_not_disturb_on_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpace.md),
+                  _FilterChips(
+                    selected: _filter,
+                    counts: {
+                      'all': _stats.total,
+                      'pending': _stats.pending,
+                      'acknowledged': _stats.acknowledged,
+                      'declined': _stats.declined,
+                    },
+                    onChanged: (value) => setState(() => _filter = value),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _loading && _alerts.isEmpty
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.alert),
+                    )
+                  : _error != null && _alerts.isEmpty
+                      ? EmptyState(
+                          icon: Icons.cloud_off_rounded,
+                          title: 'Cannot reach Élan',
+                          message: _error!,
+                          color: AppColors.warning,
+                        )
+                      : RefreshIndicator(
+                          onRefresh: () => _refresh(),
+                          color: AppColors.alert,
+                          backgroundColor: AppColors.surfaceRaised,
+                          child: _visibleAlerts.isEmpty
+                              ? ListView(
+                                  children: const [
+                                    SizedBox(height: 60),
+                                    EmptyState(
+                                      icon: Icons.inbox_rounded,
+                                      title: 'Inbox clear',
+                                      message:
+                                          'Cardiac alerts routed to this hospital will land here the moment a member sends one.',
+                                      color: AppColors.alert,
+                                    ),
+                                  ],
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                      AppSpace.xl,
+                                      AppSpace.sm,
+                                      AppSpace.xl,
+                                      32),
+                                  itemCount: _visibleAlerts.length,
+                                  itemBuilder: (context, index) {
+                                    final alert = _visibleAlerts[index];
+                                    return _ReceiverAlertCard(
+                                      alert: alert,
+                                      time: _relativeTime(alert.createdAt),
+                                      onOpen: () => _openDetail(alert),
+                                      onAcknowledge: () => _acknowledge(alert),
+                                      onDecline: () => _decline(alert),
+                                    );
+                                  },
+                                ),
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Status filter row for the receiver inbox.
+class _FilterChips extends StatelessWidget {
+  const _FilterChips({
+    required this.selected,
+    required this.counts,
+    required this.onChanged,
+  });
+
+  final String selected;
+  final Map<String, int> counts;
+  final ValueChanged<String> onChanged;
+
+  static const _labels = {
+    'all': 'All',
+    'pending': 'New',
+    'acknowledged': 'Accepted',
+    'declined': 'Passed',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _labels.entries.map((entry) {
+          final isSelected = entry.key == selected;
+          final color = switch (entry.key) {
+            'pending' => AppColors.brand,
+            'acknowledged' => AppColors.success,
+            'declined' => AppColors.textSecondary,
+            _ => AppColors.alert,
+          };
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => onChanged(entry.key),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? color.withValues(alpha: 0.16)
+                      : AppColors.surface,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: isSelected
+                        ? color.withValues(alpha: 0.5)
+                        : AppColors.hairline,
+                  ),
+                ),
+                child: Text(
+                  '${entry.value}  ${counts[entry.key] ?? 0}',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected ? color : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _ReceiverAlertCard extends StatelessWidget {
+  const _ReceiverAlertCard({
+    required this.alert,
+    required this.time,
+    required this.onOpen,
+    required this.onAcknowledge,
+    required this.onDecline,
+  });
+
+  final ReceiverAlert alert;
+  final String time;
+  final VoidCallback onOpen;
+  final VoidCallback onAcknowledge;
+  final VoidCallback onDecline;
+
+  (String, Color) get _statusStyle => switch (alert.status) {
+        ReceiverAlertStatus.acknowledged => ('Accepted', AppColors.success),
+        ReceiverAlertStatus.declined => ('Passed', AppColors.textSecondary),
+        ReceiverAlertStatus.pending => ('New', AppColors.brand),
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final (statusLabel, statusColor) = _statusStyle;
+
+    return SurfaceCard(
+      radius: AppRadius.md,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      onTap: onOpen,
+      borderColor:
+          alert.isPending ? AppColors.brand.withValues(alpha: 0.35) : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconTile(
+                icon: Icons.monitor_heart_rounded,
+                color: statusColor,
+                size: 42,
+                iconSize: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(alert.patientName,
+                        style: Theme.of(context).textTheme.titleMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(Icons.schedule_rounded,
+                            size: 12, color: AppColors.textMuted),
+                        const SizedBox(width: 4),
+                        Text(time,
+                            style: Theme.of(context).textTheme.bodySmall),
+                        if (alert.distanceKm != null) ...[
+                          const SizedBox(width: 10),
+                          const Icon(Icons.near_me_rounded,
+                              size: 12, color: AppColors.textMuted),
+                          const SizedBox(width: 4),
+                          Text('${alert.distanceKm!.toStringAsFixed(1)} km',
+                              style: Theme.of(context).textTheme.bodySmall),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              StatusBadge(label: statusLabel, color: statusColor),
+            ],
+          ),
+          if (alert.symptoms.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: alert.symptoms
+                  .map((s) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.brand.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          s,
+                          style: const TextStyle(
+                            color: AppColors.brand,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ],
+          if (alert.status == ReceiverAlertStatus.acknowledged &&
+              alert.etaMinutes != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.directions_car_rounded,
+                    size: 14, color: AppColors.success),
+                const SizedBox(width: 6),
+                Text('Team en route · ~${alert.etaMinutes} min',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: AppColors.success)),
+              ],
+            ),
+          ],
+          if (alert.status == ReceiverAlertStatus.declined &&
+              alert.declineReason != null) ...[
+            const SizedBox(height: 12),
+            Text(alert.declineReason!,
+                style: Theme.of(context).textTheme.bodySmall),
+          ],
+          if (alert.isPending) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TonalButton(
+                    label: 'Pass',
+                    icon: Icons.do_not_disturb_on_rounded,
+                    color: AppColors.textSecondary,
+                    onPressed: onDecline,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: PrimaryButton(
+                    label: 'Accept',
+                    icon: Icons.check_rounded,
+                    color: AppColors.success,
+                    onPressed: onAcknowledge,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Full detail view with the response actions.
+class ReceiverAlertDetailScreen extends StatefulWidget {
+  const ReceiverAlertDetailScreen({super.key, required this.alert});
+
+  final ReceiverAlert alert;
+
+  @override
+  State<ReceiverAlertDetailScreen> createState() =>
+      _ReceiverAlertDetailScreenState();
+}
+
+class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
+  late ReceiverAlert _alert = widget.alert;
+  final _receiver = ReceiverService();
+  bool _submitting = false;
+
+  Future<void> _acknowledge() async {
+    final choice = await _pickEta(context);
+    if (choice == null || !mounted) return;
+
+    setState(() => _submitting = true);
+    final result =
+        await _receiver.acknowledge(_alert.id, etaMinutes: choice.minutes);
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (result.alert == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(result.error ?? 'Could not acknowledge the alert')),
+      );
+      return;
+    }
+
+    setState(() => _alert = result.alert!);
+  }
+
+  Future<void> _decline() async {
+    final reason = await _pickDeclineReason(context);
+    if (reason == null || !mounted) return;
+
+    setState(() => _submitting = true);
+    final result = await _receiver.decline(_alert.id, reason: reason);
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (result.alert == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.error ?? 'Could not decline the alert')),
+      );
+      return;
+    }
+
+    setState(() => _alert = result.alert!);
+  }
+
+  void _close() => Navigator.of(context).pop(_alert);
+
+  @override
+  Widget build(BuildContext context) {
+    final (statusLabel, statusColor) = switch (_alert.status) {
+      ReceiverAlertStatus.acknowledged => ('Accepted', AppColors.success),
+      ReceiverAlertStatus.declined => ('Passed', AppColors.textSecondary),
+      ReceiverAlertStatus.pending => ('Awaiting response', AppColors.brand),
+    };
+
+    return AppBackground(
+      glow: AppColors.alert,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Incoming alert',
+              title: _alert.patientName,
+              subtitle: _alert.createdAt.toLocal().toString().split('.').first,
+              onBack: _close,
+              trailing: StatusBadge(label: statusLabel, color: statusColor),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.xl, AppSpace.sm, AppSpace.xl, 32),
+                children: [
+                  SurfaceCard(
+                    borderColor: statusColor.withValues(alpha: 0.3),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const EyebrowLabel(text: 'Reported symptoms'),
+                        const SizedBox(height: 10),
+                        if (_alert.symptoms.isEmpty)
+                          Text('No symptoms recorded',
+                              style: Theme.of(context).textTheme.bodyMedium)
+                        else
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: _alert.symptoms
+                                .map((s) => Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.brand
+                                            .withValues(alpha: 0.12),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        s,
+                                        style: const TextStyle(
+                                          color: AppColors.brand,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ))
+                                .toList(),
+                          ),
+                        if (_alert.message.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.ink.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              border: Border.all(color: AppColors.hairline),
+                            ),
+                            child: Text(
+                              _alert.message,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(height: 1.5),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.lg),
+                  SurfaceCard(
+                    child: Column(
+                      children: [
+                        InfoRow(
+                          icon: Icons.my_location_rounded,
+                          label: 'Patient coordinates',
+                          value:
+                              '${_alert.latitude.toStringAsFixed(5)}, ${_alert.longitude.toStringAsFixed(5)}',
+                          color: AppColors.brand,
+                        ),
+                        if (_alert.distanceKm != null) ...[
+                          Divider(height: 24, color: AppColors.hairline),
+                          InfoRow(
+                            icon: Icons.near_me_rounded,
+                            label: 'Distance from this hospital',
+                            value:
+                                '${_alert.distanceKm!.toStringAsFixed(2)} km',
+                            color: AppColors.sky,
+                          ),
+                        ],
+                        if (_alert.patientPhone.isNotEmpty) ...[
+                          Divider(height: 24, color: AppColors.hairline),
+                          InfoRow(
+                            icon: Icons.phone_rounded,
+                            label: 'Patient phone',
+                            value: _alert.patientPhone,
+                            color: AppColors.success,
+                          ),
+                        ],
+                        Divider(height: 24, color: AppColors.hairline),
+                        InfoRow(
+                          icon: Icons.map_rounded,
+                          label: 'Navigation',
+                          value: _alert.mapsUrl.isEmpty
+                              ? 'Unavailable'
+                              : 'Copy the maps link to open directions',
+                          color: AppColors.warning,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_alert.mapsUrl.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    TonalButton(
+                      label: 'Copy navigation link',
+                      icon: Icons.link_rounded,
+                      color: AppColors.warning,
+                      onPressed: () async {
+                        await Clipboard.setData(
+                            ClipboardData(text: _alert.mapsUrl));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content:
+                                  Text('Navigation link copied to clipboard')),
+                        );
+                      },
+                    ),
+                  ],
+                  if (_alert.status != ReceiverAlertStatus.pending) ...[
+                    const SizedBox(height: AppSpace.lg),
+                    SurfaceCard(
+                      color: statusColor.withValues(alpha: 0.07),
+                      borderColor: statusColor.withValues(alpha: 0.3),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          EyebrowLabel(
+                              text: 'Your response', color: statusColor),
+                          const SizedBox(height: 10),
+                          Text(
+                            _alert.status == ReceiverAlertStatus.acknowledged
+                                ? (_alert.etaMinutes != null
+                                    ? 'Accepted · team en route in about ${_alert.etaMinutes} min'
+                                    : 'Accepted · team dispatched')
+                                : 'Passed${_alert.declineReason != null ? ' · ${_alert.declineReason}' : ''}',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 16),
+                          OutlinedButton(
+                            onPressed: _submitting
+                                ? null
+                                : () => _alert.status ==
+                                        ReceiverAlertStatus.declined
+                                    ? _acknowledge()
+                                    : _decline(),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textSecondary,
+                              side: const BorderSide(color: AppColors.hairline),
+                              minimumSize: const Size(0, 46),
+                            ),
+                            child: Text(
+                              _alert.status == ReceiverAlertStatus.declined
+                                  ? 'Change to accepted'
+                                  : 'Change to passed',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (_alert.isPending) ...[
+                    const SizedBox(height: AppSpace.lg),
+                    PrimaryButton(
+                      label: 'Accept & dispatch team',
+                      icon: Icons.check_rounded,
+                      color: AppColors.success,
+                      loading: _submitting,
+                      onPressed: _submitting ? null : _acknowledge,
+                    ),
+                    const SizedBox(height: 12),
+                    TonalButton(
+                      label: 'Pass to other hospitals',
+                      icon: Icons.do_not_disturb_on_rounded,
+                      color: AppColors.textSecondary,
+                      onPressed: _submitting ? null : _decline,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Facility details and sign-out for the receiving desk.
+class ReceiverFacilityScreen extends StatefulWidget {
+  const ReceiverFacilityScreen({super.key});
+
+  @override
+  State<ReceiverFacilityScreen> createState() => _ReceiverFacilityScreenState();
+}
+
+class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
+  final _receiver = ReceiverService();
+  final _auth = AuthService();
+
+  ReceiverHospital? _hospital;
+  ReceiverStats _stats = const ReceiverStats();
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    final result = await _receiver.loadProfile();
+    if (!mounted) return;
+
+    setState(() {
+      _loading = false;
+      if (result.hospital == null) {
+        _error = result.error;
+        final cached = _receiver.cachedInbox;
+        _hospital = cached?.hospital;
+        _stats = cached?.stats ?? const ReceiverStats();
+      } else {
+        _hospital = result.hospital;
+        _stats = _receiver.cachedInbox?.stats ?? const ReceiverStats();
+      }
+    });
+  }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon:
+            const Icon(Icons.logout_rounded, color: AppColors.brand, size: 28),
+        title: const Text('End this shift?'),
+        content: const Text(
+            'The receiver console will close and you will need to sign in again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.brand),
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.logout_rounded, size: 18),
+            label: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    await _auth.logout();
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => false);
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen(hospitalMode: true)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final staff = _auth.currentLoggedInUser;
+    final hospital = _hospital;
+    final address = hospital?.address.trim() ?? '';
+    final phone = hospital?.phone.trim() ?? '';
+
+    return AppBackground(
+      glow: AppColors.alert,
+      child: SafeArea(
+        child: Column(
+          children: [
+            ScreenHeader(
+              eyebrow: 'Receiver console',
+              title: 'Facility',
+              onBack: () => Navigator.of(context).pop(),
+              trailing: IconButton(
+                tooltip: 'Refresh',
+                onPressed: _loading ? null : _load,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                color: AppColors.alert,
+              ),
+            ),
+            Expanded(
+              child: _loading && hospital == null
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.alert),
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(
+                          AppSpace.xl, AppSpace.sm, AppSpace.xl, 32),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 460),
+                          child: Column(
+                            children: [
+                              if (_error != null) ...[
+                                ErrorBanner(
+                                  message:
+                                      'Showing cached facility details — $_error',
+                                ),
+                                const SizedBox(height: 14),
+                              ],
+                              const IconTile(
+                                icon: Icons.local_hospital_rounded,
+                                color: AppColors.alert,
+                                size: 84,
+                                iconSize: 38,
+                              ),
+                              const SizedBox(height: 18),
+                              Text(
+                                hospital?.name ?? 'Hospital',
+                                style:
+                                    Theme.of(context).textTheme.displayMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                staff?.email ?? '—',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(color: AppColors.alert),
+                              ),
+                              const SizedBox(height: 12),
+                              const StatusBadge(
+                                  label: 'DUTY DESK', color: AppColors.alert),
+                              const SizedBox(height: AppSpace.xxl),
+                              SurfaceCard(
+                                child: Column(
+                                  children: [
+                                    InfoRow(
+                                      icon: Icons.place_rounded,
+                                      label: 'Address',
+                                      value: address.isEmpty
+                                          ? 'Not set'
+                                          : address,
+                                      color: AppColors.sky,
+                                    ),
+                                    Divider(
+                                        height: 24, color: AppColors.hairline),
+                                    InfoRow(
+                                      icon: Icons.phone_rounded,
+                                      label: 'Emergency line',
+                                      value: phone.isEmpty ? 'Not set' : phone,
+                                      color: AppColors.success,
+                                    ),
+                                    Divider(
+                                        height: 24, color: AppColors.hairline),
+                                    InfoRow(
+                                      icon: Icons.inbox_rounded,
+                                      label: 'Alerts received',
+                                      value: '${_stats.total}',
+                                      color: AppColors.brand,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: AppSpace.xl),
+                              TonalButton(
+                                label: 'Log out',
+                                icon: Icons.logout_rounded,
+                                color: AppColors.brand,
+                                onPressed: _logout,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Ask the duty officer for an arrival estimate. Returns null when cancelled,
+/// or `minutes: null` when they accept without committing to a time.
+Future<({bool confirmed, int? minutes})?> _pickEta(BuildContext context) {
+  const options = [5, 10, 15, 20, 30];
+  return showDialog<({bool confirmed, int? minutes})>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Team arrival estimate'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'The patient is told what to expect once you accept.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: options
+                .map((minutes) => ActionChip(
+                      label: Text('~$minutes min'),
+                      onPressed: () => Navigator.of(context)
+                          .pop((confirmed: true, minutes: minutes)),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context).pop((confirmed: true, minutes: null)),
+            child: const Text('No estimate'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Ask why this hospital is passing. `null` means "cancelled".
+Future<String?> _pickDeclineReason(BuildContext context) {
+  const reasons = [
+    'No cardiac team available',
+    'Beds full — diverting',
+    'Outside our catchment',
+    'Wrong dispatch for this facility',
+  ];
+
+  return showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Pass this alert?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'The patient sees that you could not take it, and the other notified hospitals keep standing by.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 18),
+          ...reasons.map((reason) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(reason),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.hairline),
+                    minimumSize: const Size(0, 46),
+                    alignment: Alignment.centerLeft,
+                  ),
+                  child: Text(reason),
+                ),
+              )),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
+    ),
+  );
 }
 
 // ==================== USER PROFILE ====================
@@ -2173,9 +3548,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        icon: const Icon(Icons.logout_rounded, color: AppColors.brand, size: 28),
+        icon:
+            const Icon(Icons.logout_rounded, color: AppColors.brand, size: 28),
         title: const Text('Log out?'),
-        content: const Text('You will need to sign in again to access your control centre.'),
+        content: const Text(
+            'You will need to sign in again to access your control centre.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -2223,7 +3600,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = _auth.currentLoggedInUser;
-    final role = (user?.role.isEmpty ?? true) ? 'member' : (user?.role ?? 'member');
+    final role =
+        (user?.role.isEmpty ?? true) ? 'member' : (user?.role ?? 'member');
     final phone = user?.phone ?? '';
 
     return AppBackground(
@@ -2237,16 +3615,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_syncing)
-                    ...[
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.brand),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
+                  if (_syncing) ...[
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.brand),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   IconButton(
                     tooltip: 'Sync profile',
                     onPressed: _syncing ? null : _syncProfile,
@@ -2286,7 +3663,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               color: AppColors.success.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(AppRadius.sm),
                               border: Border.all(
-                                  color: AppColors.success.withValues(alpha: 0.4)),
+                                  color:
+                                      AppColors.success.withValues(alpha: 0.4)),
                             ),
                             child: Row(
                               children: [
@@ -2315,8 +3693,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               colors: [Color(0xFF3A4AA8), Color(0xFF232C49)],
                             ),
                             shape: BoxShape.circle,
-                            border: Border.all(
-                                color: AppColors.hairline, width: 2),
+                            border:
+                                Border.all(color: AppColors.hairline, width: 2),
                             boxShadow: [
                               BoxShadow(
                                 color: AppColors.alert.withValues(alpha: 0.25),
@@ -2381,9 +3759,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                 child: InfoRow(
                                   icon: Icons.phone_outlined,
                                   label: 'Phone',
-                                  value: phone.isEmpty
-                                      ? 'Not set'
-                                      : phone,
+                                  value: phone.isEmpty ? 'Not set' : phone,
                                   color: AppColors.sky,
                                 ),
                               ),
@@ -2533,8 +3909,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         label: 'Save changes',
                         icon: Icons.check_rounded,
                         loading: _submitting,
-                        onPressed:
-                            _submitting ? null : _submit,
+                        onPressed: _submitting ? null : _submit,
                       ),
                     ],
                   ),
@@ -2627,16 +4002,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_syncing)
-                    ...[
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.success),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
+                  if (_syncing) ...[
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.success),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   IconButton(
                     tooltip: 'Sync from server',
                     onPressed: _syncing ? null : _syncVitals,
@@ -2665,8 +4039,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                     AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
-                child: ErrorBanner(
-                    message: 'Could not sync readings from server'),
+                child:
+                    ErrorBanner(message: 'Could not sync readings from server'),
               ),
             Expanded(
               child: vitals.isEmpty
@@ -2714,8 +4088,8 @@ class _VitalsCard extends StatelessWidget {
     return AppColors.success;
   }
 
-  Widget _vitalBadge(BuildContext context,
-      IconData icon, String label, String value, bool abnormal) {
+  Widget _vitalBadge(BuildContext context, IconData icon, String label,
+      String value, bool abnormal) {
     final color = abnormal ? AppColors.brand : AppColors.success;
     return Expanded(
       child: Container(
@@ -2734,11 +4108,10 @@ class _VitalsCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(label,
-                      style:
-                          Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: AppColors.textMuted,
-                                letterSpacing: 1.0,
-                              ),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AppColors.textMuted,
+                            letterSpacing: 1.0,
+                          ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                 ),
@@ -2786,7 +4159,10 @@ class _VitalsCard extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              _vitalBadge(context, Icons.favorite_rounded, 'HEART RATE',
+              _vitalBadge(
+                  context,
+                  Icons.favorite_rounded,
+                  'HEART RATE',
                   '${vitals.heartRate} bpm',
                   vitals.heartRate > 120 || vitals.heartRate < 60),
               const SizedBox(width: 10),
@@ -3082,8 +4458,7 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canSubmit =
-        _patientNameController.text.isNotEmpty &&
+    final canSubmit = _patientNameController.text.isNotEmpty &&
         _patientIdController.text.isNotEmpty &&
         _heartRateController.text.isNotEmpty &&
         _oxygenController.text.isNotEmpty &&
@@ -3274,16 +4649,15 @@ class _PatientScreenState extends State<PatientScreen> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_syncing)
-                    ...[
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.sky),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
+                  if (_syncing) ...[
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.sky),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   IconButton(
                     tooltip: 'Sync from server',
                     onPressed: _syncing ? null : _syncPatients,
@@ -3312,8 +4686,8 @@ class _PatientScreenState extends State<PatientScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                     AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
-                child: ErrorBanner(
-                    message: 'Could not sync patients from server'),
+                child:
+                    ErrorBanner(message: 'Could not sync patients from server'),
               ),
             Expanded(
               child: patients.isEmpty
@@ -3329,8 +4703,7 @@ class _PatientScreenState extends State<PatientScreen> {
                       itemCount: patients.length,
                       itemBuilder: (context, index) => _PatientCard(
                           patient: patients[index],
-                          color: _getConditionColor(
-                              patients[index].condition),
+                          color: _getConditionColor(patients[index].condition),
                           onTap: () async {
                             final result = await openForResult<bool>(
                               context,
@@ -3350,8 +4723,7 @@ class _PatientScreenState extends State<PatientScreen> {
 }
 
 class _PatientCard extends StatelessWidget {
-  const _PatientCard(
-      {required this.patient, required this.color, this.onTap});
+  const _PatientCard({required this.patient, required this.color, this.onTap});
   final PatientRecord patient;
   final Color color;
   final VoidCallback? onTap;
@@ -3412,8 +4784,7 @@ class _PatientCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.medical_services_rounded,
-                    size: 16, color: color),
+                Icon(Icons.medical_services_rounded, size: 16, color: color),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -3525,15 +4896,9 @@ class PatientDetailScreen extends StatelessWidget {
                         '${patient.age} years'),
                     _infoTile(context, Icons.water_drop_outlined, 'Blood type',
                         patient.bloodType),
-                    _infoTile(
-                        context,
-                        Icons.calendar_today_rounded,
-                        'Admission date',
-                        patient.admissionDate),
-                    _infoTile(
-                        context,
-                        Icons.meeting_room_outlined,
-                        'Room',
+                    _infoTile(context, Icons.calendar_today_rounded,
+                        'Admission date', patient.admissionDate),
+                    _infoTile(context, Icons.meeting_room_outlined, 'Room',
                         patient.roomNumber),
                     const SizedBox(height: 14),
                     PrimaryButton(
@@ -3587,12 +4952,9 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     super.initState();
     final p = widget.patient;
     _nameController = TextEditingController(text: p?.name ?? '');
-    _ageController =
-        TextEditingController(text: p != null ? '${p.age}' : '');
-    _bloodTypeController =
-        TextEditingController(text: p?.bloodType ?? '');
-    _conditionController =
-        TextEditingController(text: p?.condition ?? '');
+    _ageController = TextEditingController(text: p != null ? '${p.age}' : '');
+    _bloodTypeController = TextEditingController(text: p?.bloodType ?? '');
+    _conditionController = TextEditingController(text: p?.condition ?? '');
     _admissionDateController =
         TextEditingController(text: p?.admissionDate ?? '');
     _roomController = TextEditingController(text: p?.roomNumber ?? '');
@@ -3666,8 +5028,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canSubmit =
-        _nameController.text.isNotEmpty &&
+    final canSubmit = _nameController.text.isNotEmpty &&
         _ageController.text.isNotEmpty &&
         _bloodTypeController.text.isNotEmpty &&
         _conditionController.text.isNotEmpty &&
@@ -3848,16 +5209,15 @@ class _ReportScreenState extends State<ReportScreen> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_syncing)
-                    ...[
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.warning),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
+                  if (_syncing) ...[
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.warning),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   IconButton(
                     tooltip: 'Sync from server',
                     onPressed: _syncing ? null : _syncReports,
@@ -3886,8 +5246,8 @@ class _ReportScreenState extends State<ReportScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                     AppSpace.xl, 0, AppSpace.xl, AppSpace.sm),
-                child: ErrorBanner(
-                    message: 'Could not sync reports from server'),
+                child:
+                    ErrorBanner(message: 'Could not sync reports from server'),
               ),
             Expanded(
               child: reports.isEmpty
@@ -3979,8 +5339,10 @@ class _ReportCard extends StatelessWidget {
             ),
             child: Text(
               report.summary,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary, height: 1.55),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AppColors.textSecondary, height: 1.55),
             ),
           ),
         ],
@@ -4009,8 +5371,10 @@ class ReportDetailScreen extends StatelessWidget {
             Icon(icon, size: 18, color: AppColors.warning),
             const SizedBox(height: 8),
             Text(label.toUpperCase(),
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppColors.textMuted, letterSpacing: 1.2)),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(color: AppColors.textMuted, letterSpacing: 1.2)),
             const SizedBox(height: 3),
             Text(value, style: Theme.of(context).textTheme.titleMedium),
           ],
@@ -4049,11 +5413,11 @@ class ReportDetailScreen extends StatelessWidget {
                     const SizedBox(height: 14),
                     Row(
                       children: [
-                        _metaTile(context, Icons.person_rounded,
-                            'Patient', report.patientName),
+                        _metaTile(context, Icons.person_rounded, 'Patient',
+                            report.patientName),
                         const SizedBox(width: 12),
-                        _metaTile(context, Icons.calendar_today_rounded,
-                            'Date', report.date),
+                        _metaTile(context, Icons.calendar_today_rounded, 'Date',
+                            report.date),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -4062,8 +5426,8 @@ class ReportDetailScreen extends StatelessWidget {
                         _metaTile(context, Icons.medical_services_rounded,
                             'Type', report.reportType),
                         const SizedBox(width: 12),
-                        _metaTile(context, Icons.badge_outlined,
-                            'Doctor', report.doctor),
+                        _metaTile(context, Icons.badge_outlined, 'Doctor',
+                            report.doctor),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -4163,8 +5527,7 @@ class _AddReportScreenState extends State<AddReportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canSubmit =
-        _patientNameController.text.isNotEmpty &&
+    final canSubmit = _patientNameController.text.isNotEmpty &&
         _reportTypeController.text.isNotEmpty &&
         _dateController.text.isNotEmpty &&
         _summaryController.text.isNotEmpty &&

@@ -61,6 +61,15 @@ async function registerUser(overrides = {}) {
     };
 }
 
+async function registerHospitalStaff(hospitalId, overrides = {}) {
+    return registerUser({
+        name: 'Duty Officer',
+        role: 'hospital',
+        hospitalId,
+        ...overrides
+    });
+}
+
 function adminToken() {
     return jwt.sign(
         { userId: 'admin-test-user', email: 'admin@test.com', role: 'admin' },
@@ -69,4 +78,4 @@ function adminToken() {
     );
 }
 
-module.exports = { start, stop, registerUser, adminToken };
+module.exports = { start, stop, registerUser, registerHospitalStaff, adminToken };

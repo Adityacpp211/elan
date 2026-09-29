@@ -34,6 +34,7 @@ async function initializeDatabase() {
       password_hash TEXT NOT NULL,
       phone TEXT,
       role TEXT DEFAULT 'member',
+      hospital_id TEXT,
       fcm_token TEXT,
       last_latitude REAL,
       last_longitude REAL,
@@ -91,7 +92,13 @@ async function initializeDatabase() {
       notification_sent INTEGER DEFAULT 0,
       sent_at TEXT,
       acknowledged INTEGER DEFAULT 0,
-      acknowledged_at TEXT
+      acknowledged_at TEXT,
+      declined INTEGER DEFAULT 0,
+      declined_at TEXT,
+      decline_reason TEXT,
+      eta_minutes INTEGER,
+      responded_by TEXT,
+      responded_at TEXT
     )
   `);
 
@@ -144,6 +151,23 @@ async function initializeDatabase() {
   }
   if (!userColumns.some((c) => c.name === 'role')) {
     db.run("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'");
+  }
+  if (!userColumns.some((c) => c.name === 'hospital_id')) {
+    db.run('ALTER TABLE users ADD COLUMN hospital_id TEXT');
+  }
+
+  const alertHospitalColumns = all('PRAGMA table_info(alert_hospitals)');
+  for (const [column, ddl] of [
+    ['declined', 'INTEGER DEFAULT 0'],
+    ['declined_at', 'TEXT'],
+    ['decline_reason', 'TEXT'],
+    ['eta_minutes', 'INTEGER'],
+    ['responded_by', 'TEXT'],
+    ['responded_at', 'TEXT']
+  ]) {
+    if (!alertHospitalColumns.some((c) => c.name === column)) {
+      db.run(`ALTER TABLE alert_hospitals ADD COLUMN ${column} ${ddl}`);
+    }
   }
 
   saveDatabase();

@@ -33,5 +33,11 @@ module.exports = {
     tier1: 1,
     tier2: 3,
     tier3: 10  // All nearby hospitals
-  }
+  },
+
+  // Demo hospital-staff account (dev/test only, never in production)
+  seedReceiverStaff: process.env.SEED_RECEIVER_STAFF !== 'false',
+  seedReceiverEmail: process.env.SEED_RECEIVER_EMAIL || '',
+  seedReceiverPassword: process.env.SEED_RECEIVER_PASSWORD || '',
+  seedReceiverHospitalId: process.env.SEED_RECEIVER_HOSPITAL_ID || ''
 };

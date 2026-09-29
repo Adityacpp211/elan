@@ -2,12 +2,21 @@ const { all, get, run } = require('./database');
 const { v4: uuidv4 } = require('uuid');
 
 class User {
-    static create(name, email, passwordHash) {
+    static create(name, email, passwordHash, options = {}) {
         const id = uuidv4();
         const now = new Date().toISOString();
         run(
-            `INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-            [id, name, email, passwordHash, now]
+            `INSERT INTO users (id, name, email, password_hash, role, hospital_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                id,
+                name,
+                email,
+                passwordHash,
+                options.role || 'member',
+                options.hospitalId || null,
+                now
+            ]
         );
         return this.findById(id);
     }
@@ -18,6 +27,10 @@ class User {
 
     static findById(id) {
         return get('SELECT * FROM users WHERE id = ?', [id]);
+    }
+
+    static findByHospitalId(hospitalId) {
+        return all('SELECT * FROM users WHERE hospital_id = ?', [hospitalId]);
     }
 
     static updateLocation(id, latitude, longitude) {

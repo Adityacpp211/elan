@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'services/api_service.dart';
+import 'services/receiver_service.dart';
 
 // ==================== MODELS ====================
 
@@ -16,6 +17,7 @@ class User {
   final String password;
   final String phone;
   final String role;
+  final String? hospitalId;
 
   User({
     this.id,
@@ -24,9 +26,14 @@ class User {
     required this.password,
     this.phone = '',
     this.role = 'member',
+    this.hospitalId,
   });
 
-  User copyWith({String? name, String? phone, String? role}) {
+  /// Hospital staff sign in to the receiver console instead of the member app.
+  bool get isReceiver => role == 'hospital';
+
+  User copyWith(
+      {String? name, String? phone, String? role, String? hospitalId}) {
     return User(
       id: id,
       name: name ?? this.name,
@@ -34,6 +41,7 @@ class User {
       password: password,
       phone: phone ?? this.phone,
       role: role ?? this.role,
+      hospitalId: hospitalId ?? this.hospitalId,
     );
   }
 }
@@ -209,6 +217,162 @@ class HospitalAlert {
   });
 }
 
+// ==================== HOSPITAL RECEIVER MODELS ====================
+
+/// Lifecycle of an alert from the receiving hospital's point of view.
+enum ReceiverAlertStatus { pending, acknowledged, declined }
+
+ReceiverAlertStatus _statusFrom(String? raw) => switch (raw) {
+      'acknowledged' => ReceiverAlertStatus.acknowledged,
+      'declined' => ReceiverAlertStatus.declined,
+      _ => ReceiverAlertStatus.pending,
+    };
+
+class ReceiverAlert {
+  final String id;
+  final ReceiverAlertStatus status;
+  final List<String> symptoms;
+  final String message;
+  final int tier;
+  final String patientName;
+  final String patientPhone;
+  final double latitude;
+  final double longitude;
+  final String mapsUrl;
+  final double? distanceKm;
+  final int? etaMinutes;
+  final String? declineReason;
+  final bool notified;
+  final DateTime? respondedAt;
+  final DateTime createdAt;
+
+  const ReceiverAlert({
+    required this.id,
+    required this.status,
+    required this.symptoms,
+    required this.message,
+    required this.tier,
+    required this.patientName,
+    required this.patientPhone,
+    required this.latitude,
+    required this.longitude,
+    required this.mapsUrl,
+    required this.createdAt,
+    this.distanceKm,
+    this.etaMinutes,
+    this.declineReason,
+    this.notified = false,
+    this.respondedAt,
+  });
+
+  bool get isPending => status == ReceiverAlertStatus.pending;
+
+  factory ReceiverAlert.fromJson(Map<String, dynamic> json) {
+    final location = (json['location'] as Map?)?.cast<String, dynamic>() ?? {};
+    return ReceiverAlert(
+      id: (json['id'] as String?) ?? '',
+      status: _statusFrom(json['status'] as String?),
+      symptoms: ((json['symptoms'] as List?) ?? const [])
+          .map((s) => s.toString())
+          .where((s) => s.isNotEmpty)
+          .toList(),
+      message: (json['message'] as String?) ?? '',
+      tier: (json['tier'] as num?)?.toInt() ?? 1,
+      patientName: (json['patientName'] as String?) ?? 'Anonymous',
+      patientPhone: (json['patientPhone'] as String?) ?? '',
+      latitude: (location['latitude'] as num?)?.toDouble() ?? 0,
+      longitude: (location['longitude'] as num?)?.toDouble() ?? 0,
+      mapsUrl: (location['mapsUrl'] as String?) ?? '',
+      distanceKm: (json['distanceKm'] as num?)?.toDouble(),
+      etaMinutes: (json['etaMinutes'] as num?)?.toInt(),
+      declineReason: (json['declineReason'] as String?)?.trim().isEmpty ?? true
+          ? null
+          : (json['declineReason'] as String?)?.trim(),
+      notified: json['notified'] == true,
+      respondedAt: DateTime.tryParse((json['respondedAt'] as String?) ??
+          (json['acknowledgedAt'] as String?) ??
+          ''),
+      createdAt: DateTime.tryParse((json['createdAt'] as String?) ?? '') ??
+          DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'status': status.name,
+        'symptoms': symptoms,
+        'message': message,
+        'tier': tier,
+        'patientName': patientName,
+        'patientPhone': patientPhone,
+        'location': {
+          'latitude': latitude,
+          'longitude': longitude,
+          'mapsUrl': mapsUrl,
+        },
+        'distanceKm': distanceKm,
+        'etaMinutes': etaMinutes,
+        'declineReason': declineReason,
+        'notified': notified,
+        'respondedAt': respondedAt?.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+      };
+}
+
+/// The facility a receiver is signed in to.
+class ReceiverHospital {
+  final String id;
+  final String name;
+  final String address;
+  final String phone;
+  final double latitude;
+  final double longitude;
+
+  const ReceiverHospital({
+    required this.id,
+    required this.name,
+    required this.address,
+    required this.phone,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  factory ReceiverHospital.fromJson(Map<String, dynamic> json) {
+    return ReceiverHospital(
+      id: (json['id'] as String?) ?? '',
+      name: (json['name'] as String?) ?? 'Hospital',
+      address: (json['address'] as String?) ?? '',
+      phone: (json['phone'] as String?) ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 0,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+class ReceiverStats {
+  final int total;
+  final int pending;
+  final int acknowledged;
+  final int declined;
+
+  const ReceiverStats({
+    this.total = 0,
+    this.pending = 0,
+    this.acknowledged = 0,
+    this.declined = 0,
+  });
+
+  factory ReceiverStats.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const ReceiverStats();
+    return ReceiverStats(
+      total: (json['total'] as num?)?.toInt() ?? 0,
+      pending: (json['pending'] as num?)?.toInt() ?? 0,
+      acknowledged: (json['acknowledged'] as num?)?.toInt() ?? 0,
+      declined: (json['declined'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 // ==================== AUTH SERVICE ====================
 
 class AuthService {
@@ -226,6 +390,8 @@ class AuthService {
   static const _kEmail = 'lastEmail';
   static const _kName = 'lastUserName';
   static const _kPassword = 'lastPassword';
+  static const _kRole = 'lastRole';
+  static const _kHospitalId = 'lastHospitalId';
 
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
@@ -238,6 +404,8 @@ class AuthService {
     final userId = _prefs.getString(_kUserId);
     final email = _prefs.getString(_kEmail);
     final name = _prefs.getString(_kName);
+    final role = _prefs.getString(_kRole);
+    final hospitalId = _prefs.getString(_kHospitalId);
 
     if (email != null && name != null) {
       if (token != null) {
@@ -245,13 +413,23 @@ class AuthService {
         // re-validate and can hard-refresh the profile if needed.
         ApiService().setAuthToken(token, userId ?? '');
       }
-      _currentLoggedInUser =
-          User(id: userId, name: name, email: email, password: '');
+      _currentLoggedInUser = User(
+        id: userId,
+        name: name,
+        email: email,
+        password: '',
+        role: role ?? 'member',
+        hospitalId: hospitalId,
+      );
     }
   }
 
   // Get current logged-in user
   User? get currentLoggedInUser => _currentLoggedInUser;
+
+  /// True when the session belongs to hospital staff, who land in the receiver
+  /// console rather than the member dashboard.
+  bool get isReceiverSession => _currentLoggedInUser?.isReceiver ?? false;
 
   // Refresh the current user's profile from the server (best effort).
   // Returns null on success, or an error message if the server is unreachable.
@@ -270,10 +448,15 @@ class AuthService {
       password: '',
       phone: (data['phone'] as String?) ?? '',
       role: (data['role'] as String?) ?? 'member',
+      hospitalId:
+          (data['hospitalId'] as String?) ?? _currentLoggedInUser!.hospitalId,
     );
 
     await _initPrefs();
     await _prefs.setString(_kName, serverUser.name);
+    if (serverUser.role.isNotEmpty) {
+      await _prefs.setString(_kRole, serverUser.role);
+    }
 
     _currentLoggedInUser = serverUser;
     return null;
@@ -306,13 +489,21 @@ class AuthService {
       password: '',
       phone: (userData['phone'] as String?) ?? phone ?? '',
       role: (userData['role'] as String?) ?? _currentLoggedInUser!.role,
+      hospitalId: (userData['hospitalId'] as String?) ??
+          _currentLoggedInUser!.hospitalId,
     );
     return null;
   }
 
   // Sign up a new user
-  Future<String?> signUp(String name, String email, String password,
-      String confirmPassword) async {
+  Future<String?> signUp(
+    String name,
+    String email,
+    String password,
+    String confirmPassword, {
+    String role = 'member',
+    String? hospitalId,
+  }) async {
     // Validate inputs
     if (name.trim().isEmpty) {
       return 'Name is required';
@@ -326,12 +517,17 @@ class AuthService {
     if (password != confirmPassword) {
       return 'Passwords do not match';
     }
+    if (role == 'hospital' && (hospitalId == null || hospitalId.isEmpty)) {
+      return 'Select the hospital you work for';
+    }
 
     // Try server-side registration first (source of truth)
     final response = await _api.register(
       name: name.trim(),
       email: email.trim(),
       password: password,
+      role: role,
+      hospitalId: hospitalId,
     );
 
     if (response.success) {
@@ -349,13 +545,21 @@ class AuthService {
       return 'Email already registered';
     }
 
-    final newUser = User(name: name.trim(), email: email.trim(), password: password);
+    final newUser = User(
+      name: name.trim(),
+      email: email.trim(),
+      password: password,
+      role: role,
+      hospitalId: hospitalId,
+    );
     _users.add(newUser);
 
     await _initPrefs();
     await _prefs.setString(_kEmail, email.trim());
     await _prefs.setString(_kName, name.trim());
     await _prefs.setString(_kPassword, password);
+    await _prefs.setString(_kRole, role);
+    if (hospitalId != null) await _prefs.setString(_kHospitalId, hospitalId);
 
     _currentLoggedInUser = newUser;
     return null; // Success
@@ -417,10 +621,12 @@ class AuthService {
       password: '',
       phone: (userData['phone'] as String?) ?? '',
       role: (userData['role'] as String?) ?? 'member',
+      hospitalId: (userData['hospitalId'] as String?) ??
+          (userData['hospital_id'] as String?),
     );
 
-    if (!_users.any(
-        (existing) => existing.email.toLowerCase() == user.email.toLowerCase())) {
+    if (!_users.any((existing) =>
+        existing.email.toLowerCase() == user.email.toLowerCase())) {
       _users.add(user);
     }
 
@@ -437,6 +643,12 @@ class AuthService {
     }
     await _prefs.setString(_kEmail, user.email);
     await _prefs.setString(_kName, user.name);
+    await _prefs.setString(_kRole, user.role);
+    if (user.hospitalId != null && user.hospitalId!.isNotEmpty) {
+      await _prefs.setString(_kHospitalId, user.hospitalId!);
+    } else {
+      await _prefs.remove(_kHospitalId);
+    }
     await _prefs.remove(_kPassword);
 
     _currentLoggedInUser = user;
@@ -451,12 +663,15 @@ class AuthService {
   Future<void> logout() async {
     _currentLoggedInUser = null;
     ApiService().clearAuth();
+    await ReceiverService().clearCache();
     await _initPrefs();
     await _prefs.remove(_kToken);
     await _prefs.remove(_kUserId);
     await _prefs.remove(_kEmail);
     await _prefs.remove(_kPassword);
     await _prefs.remove(_kName);
+    await _prefs.remove(_kRole);
+    await _prefs.remove(_kHospitalId);
   }
 
   bool _isValidEmail(String email) {

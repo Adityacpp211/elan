@@ -60,6 +60,30 @@ npm test
 | `GET` | `/api/alerts/history` | Get alert history | ✅ |
 | `GET` | `/api/alerts/:id` | Get alert details | ✅ |
 
+### Hospital Receiver
+All routes require a token with `role: "hospital"` and a `hospitalId`. Staff only
+ever see the alerts dispatched to their own facility.
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/receiver/inbox?status=all\|pending\|acknowledged\|declined` | Alerts addressed to this hospital | ✅ Hospital |
+| `GET` | `/api/receiver/inbox/:alertId` | One alert with patient and location detail | ✅ Hospital |
+| `POST` | `/api/receiver/alerts/:alertId/acknowledge` | Accept the alert, optional `etaMinutes` (0–240) | ✅ Hospital |
+| `POST` | `/api/receiver/alerts/:alertId/decline` | Pass the alert, optional `reason` | ✅ Hospital |
+| `GET` | `/api/receiver/profile` | Facility details + alert counts | ✅ Hospital |
+
+Response rules:
+- The first acknowledgement sets the parent alert to `acknowledged` and the
+  patient is notified; later declines never undo an existing acknowledgement.
+- When every notified hospital declines, the alert becomes `unacknowledged`.
+- Acknowledging after a decline clears the decline.
+- Members see the acknowledgement, ETA, and decline reason on their alert
+  history and detail views.
+
+Non-production servers seed a demo duty desk for the first hospital
+(`duty@bahubali-hospital.com` / `elan-demo-2026`, `SEED_RECEIVER_STAFF=false` to
+disable). It is skipped entirely when `NODE_ENV=production`.
+
 ### Patient Records (medical data)
 | Method | Endpoint | Description |
 |--------|----------|-------------|

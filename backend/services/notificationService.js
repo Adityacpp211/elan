@@ -233,6 +233,38 @@ async function sendEmergencyEmail(hospital, alertData) {
     return sendEmail(hospital.emergency_email, subject, html);
 }
 
+// Tell the member what a hospital decided about their alert
+async function sendResponseUpdate({ userId, alertId, hospital, acknowledged, etaMinutes, reason }) {
+    const User = require('../models/User');
+    const user = User.findById(userId);
+
+    if (!user) {
+        return { success: false, error: 'Patient not found' };
+    }
+
+    const title = acknowledged
+        ? '✅ Hospital acknowledged your alert'
+        : '⚠️ A hospital declined your alert';
+    const body = acknowledged
+        ? `${hospital.name} is responding${etaMinutes != null ? ` — ETA about ${etaMinutes} min` : ''}.`
+        : `${hospital.name} could not take this one${reason ? `: ${reason}` : ''}. Other notified hospitals are still standing by.`;
+
+    const data = {
+        alertId,
+        type: acknowledged ? 'alert_acknowledged' : 'alert_declined',
+        hospitalId: hospital.id,
+        hospitalName: hospital.name,
+        etaMinutes: etaMinutes != null ? String(etaMinutes) : ''
+    };
+
+    if (!user.fcm_token) {
+        console.log('📱 [Mock FCM] Patient has no device token:', { title, body, data });
+        return { success: true, mock: true, delivered: false };
+    }
+
+    return sendToDevice(user.fcm_token, title, body, data);
+}
+
 module.exports = {
     initializeFirebase,
     initializeTransporter,
@@ -241,5 +273,6 @@ module.exports = {
     subscribeToTopic,
     sendEmail,
     sendEmergencyAlert,
-    sendEmergencyEmail
+    sendEmergencyEmail,
+    sendResponseUpdate
 };

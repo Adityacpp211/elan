@@ -76,7 +76,7 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       final authService = AuthService();
       final destination = authService.currentLoggedInUser != null
-          ? const Dashboard() as Widget
+          ? homeForSession()
           : const LoginScreen() as Widget;
 
       Navigator.pushReplacement(
@@ -186,8 +186,8 @@ class _SplashScreenState extends State<SplashScreen>
                         height: 6,
                         margin: const EdgeInsets.symmetric(horizontal: 4),
                         decoration: BoxDecoration(
-                          color: AppColors.brand.withValues(
-                              alpha: 0.35 + i * 0.3),
+                          color:
+                              AppColors.brand.withValues(alpha: 0.35 + i * 0.3),
                           shape: BoxShape.circle,
                         ),
                       );
