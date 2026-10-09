@@ -7,13 +7,42 @@ import 'dart:async';
 import 'models.dart';
 import 'theme.dart';
 import 'screens.dart';
+import 'services/api_service.dart';
 import 'services/connection_status.dart';
+
+/// Lets services outside the widget tree (e.g. an expired session detected by
+/// ApiService) send the user back to the login screen.
+final navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ApiService().onUnauthorized = _handleExpiredSession;
   await AuthService().checkAutoLogin();
   ConnectionStatus().startMonitoring();
   runApp(const ElanApp());
+}
+
+bool _handlingExpiredSession = false;
+
+Future<void> _handleExpiredSession() async {
+  // Several in-flight requests can fail at once; only react to the first.
+  if (_handlingExpiredSession) return;
+  _handlingExpiredSession = true;
+  try {
+    await AuthService().logout();
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+          content: Text('Your session has expired. Please sign in again.')),
+    );
+  } finally {
+    _handlingExpiredSession = false;
+  }
 }
 
 class ElanApp extends StatelessWidget {
@@ -23,8 +52,21 @@ class ElanApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Élan',
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
+      // The UI is phone-first; on wide screens (desktop web, landscape
+      // tablets) keep it to a readable column instead of stretching cards
+      // edge to edge.
+      builder: (context, child) => ColoredBox(
+        color: AppColors.ink,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 840),
+            child: child,
+          ),
+        ),
+      ),
       home: const SplashScreen(),
     );
   }
@@ -117,35 +159,48 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Expanding pulse ring
-                      ScaleTransition(
-                        scale: _ringAnimation,
-                        child: Opacity(
-                          opacity: 0.12 - (_ringAnimation.value - 0.9) * 0.4,
-                          child: Container(
-                            width: 132,
-                            height: 132,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: AppColors.brand,
-                                width: 2,
-                              ),
+                      // Expanding pulse rings that fade as they grow. Opacity
+                      // is driven by the animation (it was previously read
+                      // once at build time) and clamped, since the raw
+                      // formulas go negative near the end of the curve.
+                      AnimatedBuilder(
+                        animation: _ringAnimation,
+                        builder: (context, child) => Transform.scale(
+                          scale: _ringAnimation.value,
+                          child: Opacity(
+                            opacity: (0.12 - (_ringAnimation.value - 0.9) * 0.4)
+                                .clamp(0.0, 1.0),
+                            child: child,
+                          ),
+                        ),
+                        child: Container(
+                          width: 132,
+                          height: 132,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.brand,
+                              width: 2,
                             ),
                           ),
                         ),
                       ),
-                      ScaleTransition(
-                        scale: _ringAnimation,
-                        child: Opacity(
-                          opacity: 0.2 - (_ringAnimation.value - 0.9),
-                          child: Container(
-                            width: 118,
-                            height: 118,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.brand.withValues(alpha: 0.18),
-                            ),
+                      AnimatedBuilder(
+                        animation: _ringAnimation,
+                        builder: (context, child) => Transform.scale(
+                          scale: _ringAnimation.value,
+                          child: Opacity(
+                            opacity: (0.2 - (_ringAnimation.value - 0.9))
+                                .clamp(0.0, 1.0),
+                            child: child,
+                          ),
+                        ),
+                        child: Container(
+                          width: 118,
+                          height: 118,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.brand.withValues(alpha: 0.18),
                           ),
                         ),
                       ),

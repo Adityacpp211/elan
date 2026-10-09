@@ -1,6 +1,20 @@
 require('dotenv').config();
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Settings that are safe to default in development but must never silently
+// fall back in production: a guessable JWT secret lets anyone mint tokens, and
+// without Razorpay keys the payment service would accept every payment.
+if (isProduction) {
+  const missing = ['JWT_SECRET', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET']
+    .filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables for production: ${missing.join(', ')}`);
+  }
+}
+
 module.exports = {
+  isProduction,
   port: process.env.PORT || 3000,
   jwtSecret: process.env.JWT_SECRET || 'elan-dev-secret-key',
   
@@ -34,6 +48,9 @@ module.exports = {
     tier2: 3,
     tier3: 10  // All nearby hospitals
   },
+
+  // Radius (km) searched when picking which hospitals an alert goes to
+  alertRadiusKm: 15,
 
   // Demo hospital-staff account (dev/test only, never in production)
   seedReceiverStaff: process.env.SEED_RECEIVER_STAFF !== 'false',

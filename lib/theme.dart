@@ -435,8 +435,15 @@ class ScreenHeader extends StatelessWidget implements PreferredSizeWidget {
       preferredSize: const Size.fromHeight(height),
       child: SafeArea(
         bottom: false,
-        child: SizedBox(
+        child: Container(
           height: height,
+          // Align with the 20px content gutter. The back button's visible
+          // circle sits 4px inside its 48px tap target, hence the smaller
+          // left inset when it is shown.
+          padding: EdgeInsets.only(
+            left: onBack != null ? AppSpace.lg : AppSpace.xl,
+            right: AppSpace.xl,
+          ),
           child: Row(
             children: [
               if (onBack != null)
@@ -474,7 +481,10 @@ class ScreenHeader extends StatelessWidget implements PreferredSizeWidget {
                   ],
                 ),
               ),
-              if (trailing != null) trailing!,
+              if (trailing != null) ...[
+                const SizedBox(width: AppSpace.sm),
+                trailing!,
+              ],
             ],
           ),
         ),
@@ -486,14 +496,19 @@ class ScreenHeader extends StatelessWidget implements PreferredSizeWidget {
 /// Small uppercase spaced label used above section titles.
 class EyebrowLabel extends StatelessWidget {
   const EyebrowLabel(
-      {super.key, required this.text, this.color = AppColors.textMuted});
+      {super.key,
+      required this.text,
+      this.color = AppColors.textMuted,
+      this.textAlign});
   final String text;
   final Color color;
+  final TextAlign? textAlign;
 
   @override
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
+      textAlign: textAlign,
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: color,
             fontWeight: FontWeight.w700,
@@ -898,6 +913,8 @@ class StatValue extends StatelessWidget {
       children: [
         Text(
           label.toUpperCase(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: Theme.of(context)
               .textTheme
               .labelSmall
@@ -910,14 +927,22 @@ class StatValue extends StatelessWidget {
               Icon(icon, size: 15, color: color),
               const SizedBox(width: 5),
             ],
-            Text(
-              value,
-              style: TextStyle(
-                fontFamily: AppFonts.display,
-                fontSize: 22,
-                height: 1.1,
-                fontWeight: FontWeight.w700,
-                color: color,
+            // Large values (e.g. a five-digit balance) shrink rather than
+            // overflow narrow columns.
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontFamily: AppFonts.display,
+                    fontSize: 22,
+                    height: 1.1,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
               ),
             ),
           ],

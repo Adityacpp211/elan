@@ -31,13 +31,13 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 - **One-tap SOS** — Send an emergency alert with pre-selected symptoms and your live GPS location in a single tap.
 - **Tiered response** — Choose how wide the net goes: 1, 3, or up to 10 nearby hospitals notified per alert.
 - **Location-aware hospitals** — GPS-driven search surfaces verified hospitals ranked by distance, backed by a live hospital database on the backend.
-- **Secure payments** — Tiered alert pricing with a **wallet** system and the **Razorpay** gateway for real transactions.
+- **Secure payments** — Flat tiered alert pricing through the **Razorpay** gateway (a demo wallet stands in during local development). You are charged only once the server confirms a hospital is in range.
 - **Hospital receiver desk** — A role-based console for hospital staff: live inbox, one-tap accept or pass, an arrival estimate the patient sees, and a facility profile.
 - **Hospital alert feed** — Track every alert you've sent, its status, and which hospitals acknowledged it.
 - **Patient records** — Manage patient profiles with admission details, blood type, room, and condition.
 - **Vitals monitoring** — Log and view heart rate, blood pressure, temperature, and oxygen saturation over time.
 - **Medical reports** — Store and review report documents per patient.
-- **Offline-first** — Local data store keeps the core experience working even when the server is unreachable; syncs when back online.
+- **Honest offline behaviour** — A previous session still opens offline, and the receiver console shows its last cached inbox. Alerts and records always need the server, and the app says clearly when an alert was **not** sent instead of pretending.
 - **Live server status** — On-device connectivity indicator that pings the backend and shows online/synced or offline/local.
 - **Dark-first design system** — A crafted dark UI with a custom design language (Space Grotesk + Manrope, material-you inspired tokens).
 
@@ -55,16 +55,16 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
         │ patient data                              Razorpay          push / email
         ▼                                          SMTP (Nodemailer)
 ┌──────────────────┐                      ┌───────────────────────────┐
-│  Local SQLite    │                      │   SQLite (sql.js)         │
-│  (offline cache) │                      │   persistent data store   │
+│ SharedPreferences│                      │   SQLite (sql.js)         │
+│ (session + cache)│                      │   persistent data store   │
 └──────────────────┘                      └───────────────────────────┘
 ```
 
 **Flow of an emergency:**
 
 1. User taps **Send Alert** and picks a response tier.
-2. The app resolves the user's GPS location and the nearest hospitals.
-3. The backend creates a payment order (wallet or Razorpay) and verifies it.
+2. The app resolves the user's real GPS location. If no fix is available it stops and says so; it never substitutes a default location.
+3. The backend confirms at least one hospital is in range, then creates a payment order and verifies it.
 4. Notified hospitals receive an **FCM push** and an **email** with symptoms, exact coordinates, and a Google Maps deep link.
 5. Duty staff open the **receiver console** and accept the alert, optionally giving an arrival estimate.
 6. The patient is notified of the acceptance and the ETA, and can watch the alert move to `acknowledged` in their history.
@@ -123,8 +123,24 @@ flutter test
 ```
 
 > **Configuration:** the app talks to `http://10.0.2.2:3000` by default
-> (Android emulator → host loopback). Point [`lib/services/api_service.dart`](lib/services/api_service.dart)
-> at your backend URL for a physical device.
+> (Android emulator → host loopback). Point it elsewhere at build time, with no
+> code change:
+>
+> ```bash
+> flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000
+> ```
+>
+> Plain `http://` only works in debug/profile builds. **Release builds require
+> an `https://` backend**, because patient locations must not travel unencrypted.
+
+### Production checklist
+
+- The backend **refuses to start** with `NODE_ENV=production` unless
+  `JWT_SECRET`, `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are set. Mock
+  payments are a development-only feature.
+- Android release signing reads `android/key.properties` (git-ignored). Copy
+  [`android/key.properties.example`](android/key.properties.example) and fill
+  it in. Without it, release builds fall back to debug signing.
 
 ### Trying the hospital receiver desk
 
@@ -139,6 +155,18 @@ Sign-up also accepts new hospital staff, who pick their facility from the
 hospital list. Hospital staff land in the receiver console; members land on the
 dashboard. Seeding is skipped in production and can be disabled with
 `SEED_RECEIVER_STAFF=false`.
+
+**Staff accounts need approval.** Hospital staff can read patients' alerts,
+phone numbers and live locations, so a self-registered staff account stays
+locked until an admin approves it:
+
+```
+GET  /api/auth/staff/pending            # admin: list waiting accounts
+POST /api/auth/staff/:id/approve        # admin: approve ({"approved": false} revokes)
+```
+
+Approval and revocation take effect immediately, with no re-login needed. The
+seeded demo desk is pre-approved.
 
 ---
 

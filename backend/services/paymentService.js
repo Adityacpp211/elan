@@ -82,17 +82,26 @@ async function createOrder(amountPaise, alertId, notes = {}) {
 // Verify payment signature
 function verifyPayment(orderId, paymentId, signature) {
     if (!config.razorpay.keySecret) {
+        // Mock mode only exists for local development; config refuses to boot
+        // production without keys, and this guards against it regardless.
+        if (config.isProduction) return false;
         console.log('📦 [Mock Razorpay] Verifying payment:', { orderId, paymentId });
         return true; // Auto-verify in mock mode
     }
 
-    const body = orderId + '|' + paymentId;
-    const expectedSignature = crypto
-        .createHmac('sha256', config.razorpay.keySecret)
-        .update(body)
-        .digest('hex');
+    if (typeof signature !== 'string') return false;
 
-    return expectedSignature === signature;
+    const body = orderId + '|' + paymentId;
+    const expected = Buffer.from(
+        crypto.createHmac('sha256', config.razorpay.keySecret).update(body).digest('hex')
+    );
+    const received = Buffer.from(signature);
+
+    return expected.length === received.length && crypto.timingSafeEqual(expected, received);
+}
+
+function isMockMode() {
+    return !config.razorpay.keyId || !config.razorpay.keySecret;
 }
 
 // Capture payment (for manual capture mode)
@@ -120,6 +129,7 @@ module.exports = {
     getHospitalCountForTier,
     createOrder,
     verifyPayment,
+    isMockMode,
     capturePayment,
     config: config.razorpay
 };

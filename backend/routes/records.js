@@ -6,6 +6,14 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Parse a numeric field and check it falls inside a plausible range.
+// Returns null when the value is missing, non-numeric or out of range.
+function numberInRange(value, min, max, { integer = false } = {}) {
+    const parsed = integer ? parseInt(value, 10) : parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < min || parsed > max) return null;
+    return parsed;
+}
+
 // All endpoints below require an authenticated user.
 router.use(authMiddleware);
 
@@ -40,11 +48,15 @@ router.get('/patients/:id', (req, res) => {
 router.post('/patients', (req, res) => {
     try {
         const { name, age, bloodType, condition, admissionDate, roomNumber } = req.body;
-        if (!name || !age || !bloodType || !condition || !admissionDate || !roomNumber) {
+        if (!name || age == null || !bloodType || !condition || !admissionDate || !roomNumber) {
             return res.status(400).json({ error: 'All patient fields are required' });
         }
+        const parsedAge = numberInRange(age, 0, 150, { integer: true });
+        if (parsedAge === null) {
+            return res.status(400).json({ error: 'Age must be a whole number between 0 and 150' });
+        }
         const patient = Patient.create(req.user.userId, {
-            name, age: parseInt(age), bloodType, condition, admissionDate, roomNumber
+            name, age: parsedAge, bloodType, condition, admissionDate, roomNumber
         });
         res.status(201).json({ patient });
     } catch (error) {
@@ -61,11 +73,15 @@ router.put('/patients/:id', (req, res) => {
             return res.status(404).json({ error: 'Patient not found' });
         }
         const { name, age, bloodType, condition, admissionDate, roomNumber } = req.body;
-        if (!name || !age || !bloodType || !condition || !admissionDate || !roomNumber) {
+        if (!name || age == null || !bloodType || !condition || !admissionDate || !roomNumber) {
             return res.status(400).json({ error: 'All patient fields are required' });
         }
+        const parsedAge = numberInRange(age, 0, 150, { integer: true });
+        if (parsedAge === null) {
+            return res.status(400).json({ error: 'Age must be a whole number between 0 and 150' });
+        }
         const patient = Patient.update(req.params.id, {
-            name, age: parseInt(age), bloodType, condition, admissionDate, roomNumber
+            name, age: parsedAge, bloodType, condition, admissionDate, roomNumber
         });
         res.json({ patient });
     } catch (error) {
@@ -106,16 +122,29 @@ router.get('/vitals', (req, res) => {
 router.post('/vitals', (req, res) => {
     try {
         const { patientId, patientName, heartRate, bloodPressure, temperature, oxygenLevel, timestamp } = req.body;
-        if (!patientId || !patientName || !heartRate || !bloodPressure || !temperature || !oxygenLevel) {
+        if (!patientId || !patientName || heartRate == null || !bloodPressure || temperature == null || oxygenLevel == null) {
             return res.status(400).json({ error: 'All vital fields are required' });
+        }
+        // Ranges are deliberately wide (temperature accepts °C or °F); they only
+        // reject typos and garbage, not clinically unusual readings.
+        const parsedHeartRate = numberInRange(heartRate, 0, 350, { integer: true });
+        const parsedTemperature = numberInRange(temperature, 20, 115);
+        const parsedOxygen = numberInRange(oxygenLevel, 0, 100, { integer: true });
+        if (parsedHeartRate === null || parsedTemperature === null || parsedOxygen === null) {
+            return res.status(400).json({
+                error: 'Heart rate (0-350), temperature and oxygen level (0-100) must be valid numbers'
+            });
+        }
+        if (!/^\d{2,3}\s*\/\s*\d{2,3}$/.test(String(bloodPressure).trim())) {
+            return res.status(400).json({ error: 'Blood pressure must look like 120/80' });
         }
         const vital = Vital.create(req.user.userId, {
             patientId,
             patientName,
-            heartRate: parseInt(heartRate),
-            bloodPressure,
-            temperature: parseFloat(temperature),
-            oxygenLevel: parseInt(oxygenLevel),
+            heartRate: parsedHeartRate,
+            bloodPressure: String(bloodPressure).trim(),
+            temperature: parsedTemperature,
+            oxygenLevel: parsedOxygen,
             timestamp
         });
         res.status(201).json({ vital });

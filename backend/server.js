@@ -110,7 +110,7 @@ function createApp() {
 
     // Middleware
     app.use(cors());
-    app.use(express.json());
+    app.use(express.json({ limit: '100kb' }));
 
     // Request logging
     app.use((req, res, next) => {
@@ -150,6 +150,13 @@ function createApp() {
 
     // Error handler
     app.use((err, req, res, next) => {
+        // Malformed or oversized request bodies are client errors, not crashes
+        if (err.type === 'entity.parse.failed') {
+            return res.status(400).json({ error: 'Request body is not valid JSON' });
+        }
+        if (err.type === 'entity.too.large') {
+            return res.status(413).json({ error: 'Request body too large' });
+        }
         console.error('Server error:', err);
         res.status(500).json({ error: 'Internal server error' });
     });

@@ -6,6 +6,7 @@ const User = require('../models/User');
 const notificationService = require('../services/notificationService');
 const paymentService = require('../services/paymentService');
 const { authMiddleware } = require('../middleware/auth');
+const config = require('../config/config');
 
 const router = express.Router();
 
@@ -51,7 +52,7 @@ router.post('/send', authMiddleware, async (req, res) => {
         const hospitals = Hospital.findNearby(
             alert.user_latitude,
             alert.user_longitude,
-            15, // 15km radius
+            config.alertRadiusKm,
             hospitalCount
         );
 

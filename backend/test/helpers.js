@@ -61,13 +61,32 @@ async function registerUser(overrides = {}) {
     };
 }
 
-async function registerHospitalStaff(hospitalId, overrides = {}) {
-    return registerUser({
+/// Register a hospital-staff account. Self-service staff start unapproved, so
+/// by default an admin approves the account straight away; pass
+/// `{ approve: false }` to keep it pending.
+async function registerHospitalStaff(hospitalId, { approve = true, ...overrides } = {}) {
+    const result = await registerUser({
         name: 'Duty Officer',
         role: 'hospital',
         hospitalId,
         ...overrides
     });
+
+    if (approve && result.status === 201) {
+        const res = await fetch(`${baseUrl}/api/auth/staff/${result.data.user.id}/approve`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${adminToken()}`
+            },
+            body: JSON.stringify({ approved: true })
+        });
+        if (res.status !== 200) {
+            throw new Error(`Approving staff account failed with ${res.status}`);
+        }
+    }
+
+    return result;
 }
 
 function adminToken() {

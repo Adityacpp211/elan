@@ -49,3 +49,8 @@ backend/node_modules/
 # Environment files
 .env
 backend/.env
+
+# Signing material (never commit)
+*.keystore
+*.jks
+key.properties

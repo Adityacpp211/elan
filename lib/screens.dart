@@ -87,7 +87,11 @@ class _AuthShell extends StatelessWidget {
                   const SizedBox(height: 12),
                   const Center(child: BrandMark(size: 72)),
                   const SizedBox(height: 22),
-                  EyebrowLabel(text: eyebrow, color: AppColors.brand),
+                  EyebrowLabel(
+                    text: eyebrow,
+                    color: AppColors.brand,
+                    textAlign: TextAlign.center,
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     title,
@@ -124,6 +128,8 @@ class _AuthField extends StatelessWidget {
     this.keyboardType,
     this.obscureToggle,
     this.onToggleObscure,
+    this.onTap,
+    this.onSubmitted,
   });
 
   final TextEditingController controller;
@@ -134,6 +140,13 @@ class _AuthField extends StatelessWidget {
   final bool? obscureToggle;
   final VoidCallback? onToggleObscure;
 
+  /// When set, the field is read-only and tapping it runs this instead
+  /// (e.g. to open a date picker).
+  final VoidCallback? onTap;
+
+  /// Called when the user presses Enter / the keyboard's done key.
+  final ValueChanged<String>? onSubmitted;
+
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -142,6 +155,9 @@ class _AuthField extends StatelessWidget {
         controller: controller,
         obscureText: obscure,
         keyboardType: keyboardType,
+        readOnly: onTap != null,
+        onTap: onTap,
+        onSubmitted: onSubmitted,
         style: Theme.of(context).textTheme.bodyLarge,
         decoration: InputDecoration(
           labelText: label,
@@ -161,6 +177,27 @@ class _AuthField extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Distances as people read them: metres under 1 km (not "0.0 km").
+String formatDistance(double km) =>
+    km < 1 ? '${(km * 1000).round()} m' : '${km.toStringAsFixed(1)} km';
+
+/// Pick a date into [controller] as yyyy-MM-dd, the format records are sorted
+/// by. Returns true when a date was chosen.
+Future<bool> pickDateInto(
+    BuildContext context, TextEditingController controller) async {
+  final now = DateTime.now();
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: DateTime.tryParse(controller.text) ?? now,
+    firstDate: DateTime(now.year - 30),
+    lastDate: now,
+  );
+  if (picked == null) return false;
+  String two(int n) => n.toString().padLeft(2, '0');
+  controller.text = '${picked.year}-${two(picked.month)}-${two(picked.day)}';
+  return true;
 }
 
 // ==================== LOGIN ====================
@@ -439,6 +476,9 @@ class _LoginScreenState extends State<LoginScreen> {
               obscureToggle: true,
               onToggleObscure: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
+              onSubmitted: (_) {
+                if (!_isLoading) _handleLogin();
+              },
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 16),
@@ -572,6 +612,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
     if (error != null) {
       setState(() => _errorMessage = error);
     } else {
+      if (_role == 'hospital') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 6),
+            content: Text(
+                'Account created. An administrator must approve your staff '
+                'access before the hospital inbox opens.'),
+          ),
+        );
+      }
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -700,14 +750,49 @@ class Dashboard extends StatefulWidget {
 }
 
 class _DashboardState extends State<Dashboard> {
-  final _db = DatabaseService();
+  final _api = ApiService();
   double _wallet = 5000.0;
+
+  // Record counts from the server; null until loaded (or when offline).
+  int? _alertCount;
+  int? _patientCount;
+  int? _vitalCount;
+  int? _reportCount;
 
   @override
   void initState() {
     super.initState();
     _loadWallet();
     _syncProfile();
+    _loadCounts();
+  }
+
+  Future<void> _loadCounts() async {
+    if (!_api.isAuthenticated) return;
+    final results = await Future.wait([
+      _api.getAlertHistory(),
+      _api.getPatients(),
+      _api.getVitals(),
+      _api.getReports(),
+    ]);
+    if (!mounted) return;
+
+    int? count(ApiResponse r, String key) =>
+        r.success && r.data is Map && r.data[key] is List
+            ? (r.data[key] as List).length
+            : null;
+
+    setState(() {
+      _alertCount = count(results[0], 'alerts');
+      _patientCount = count(results[1], 'patients');
+      _vitalCount = count(results[2], 'vitals');
+      _reportCount = count(results[3], 'reports');
+    });
+  }
+
+  String _countLabel(int? count, String singular, String plural) {
+    if (count == null) return 'Open $plural';
+    return '$count ${count == 1 ? singular : plural}';
   }
 
   Future<void> _loadWallet() async {
@@ -733,9 +818,9 @@ class _DashboardState extends State<Dashboard> {
   @override
   Widget build(BuildContext context) {
     final user = AuthService().currentLoggedInUser;
-    final displayName = user?.name ?? _db.currentUser?.name ?? 'Guest';
-    final alertsSent = _db.hospitalAlerts.length;
-    final hospitalCount = _db.hospitals.length;
+    final displayName = user?.name ?? 'Guest';
+    final alertsSent = _alertCount ?? 0;
+    final hospitalCount = DatabaseService().hospitals.length;
 
     return AppBackground(
       child: SafeArea(
@@ -751,11 +836,23 @@ class _DashboardState extends State<Dashboard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const EyebrowLabel(text: 'Control centre'),
-                        const SizedBox(height: 4),
+                        // Status sits on the eyebrow line so the greeting
+                        // keeps the full width on phones.
+                        const Wrap(
+                          spacing: AppSpace.sm,
+                          runSpacing: AppSpace.xs,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            EyebrowLabel(text: 'Control centre'),
+                            ServerStatusPill(syncing: true),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
                         Text(
                           _greeting,
                           style: Theme.of(context).textTheme.headlineMedium,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         Text(
                           displayName,
@@ -766,7 +863,6 @@ class _DashboardState extends State<Dashboard> {
                       ],
                     ),
                   ),
-                  const ServerStatusPill(syncing: true),
                   const SizedBox(width: AppSpace.md),
                   GestureDetector(
                     onTap: () => open(context, const UserProfileScreen()),
@@ -819,7 +915,10 @@ class _DashboardState extends State<Dashboard> {
                   ),
                   const SizedBox(height: AppSpace.lg),
                   GridView.count(
-                    crossAxisCount: 2,
+                    // Four across on tablets; two stretched tiles there are
+                    // mostly empty space.
+                    crossAxisCount:
+                        MediaQuery.sizeOf(context).width >= 600 ? 4 : 2,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     crossAxisSpacing: AppSpace.md,
@@ -830,28 +929,33 @@ class _DashboardState extends State<Dashboard> {
                         icon: Icons.notifications_active_outlined,
                         color: AppColors.alert,
                         title: 'Hospital Alerts',
-                        subtitle: '$alertsSent sent',
+                        subtitle: _alertCount == null
+                            ? 'Open log'
+                            : '$alertsSent sent',
                         onTap: () => open(context, const HospitalAlertScreen()),
                       ),
                       _ModuleTile(
                         icon: Icons.groups_outlined,
                         color: AppColors.sky,
                         title: 'Patients',
-                        subtitle: '${_db.patients.length} records',
+                        subtitle:
+                            _countLabel(_patientCount, 'record', 'records'),
                         onTap: () => open(context, PatientScreen()),
                       ),
                       _ModuleTile(
                         icon: Icons.monitor_heart_outlined,
                         color: AppColors.success,
                         title: 'Monitoring',
-                        subtitle: '${_db.vitalSigns.length} readings',
+                        subtitle:
+                            _countLabel(_vitalCount, 'reading', 'readings'),
                         onTap: () => open(context, MonitoringScreen()),
                       ),
                       _ModuleTile(
                         icon: Icons.description_outlined,
                         color: AppColors.warning,
                         title: 'Reports',
-                        subtitle: '${_db.reports.length} documents',
+                        subtitle:
+                            _countLabel(_reportCount, 'document', 'documents'),
                         onTap: () => open(context, ReportScreen()),
                       ),
                     ],
@@ -995,36 +1099,38 @@ class _StatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Widget cell(Widget child) => Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.md),
+            child: child,
+          ),
+        );
+
     return SurfaceCard(
-      padding: const EdgeInsets.symmetric(vertical: AppSpace.lg),
+      padding: const EdgeInsets.symmetric(
+          vertical: AppSpace.lg, horizontal: AppSpace.xs),
       child: Row(
         children: [
-          Expanded(
-            child: StatValue(
-              label: 'Alert credit',
-              value: '₹${credit.toStringAsFixed(0)}',
-              color: AppColors.success,
-              icon: Icons.account_balance_wallet_rounded,
-            ),
-          ),
+          cell(StatValue(
+            label: 'Credit',
+            value: '₹${credit.toStringAsFixed(0)}',
+            color: AppColors.success,
+            icon: Icons.account_balance_wallet_rounded,
+          )),
           Container(width: 1, height: 40, color: AppColors.hairline),
-          Expanded(
-            child: StatValue(
-              label: 'Care units',
-              value: '$hospitalCount',
-              color: AppColors.alert,
-              icon: Icons.local_hospital_rounded,
-            ),
-          ),
+          cell(StatValue(
+            label: 'Care units',
+            value: '$hospitalCount',
+            color: AppColors.alert,
+            icon: Icons.local_hospital_rounded,
+          )),
           Container(width: 1, height: 40, color: AppColors.hairline),
-          Expanded(
-            child: StatValue(
-              label: 'Alerts sent',
-              value: '$alertsSent',
-              color: AppColors.brand,
-              icon: Icons.notifications_active_rounded,
-            ),
-          ),
+          cell(StatValue(
+            label: 'Alerts sent',
+            value: '$alertsSent',
+            color: AppColors.brand,
+            icon: Icons.notifications_active_rounded,
+          )),
         ],
       ),
     );
@@ -1102,12 +1208,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   final Set<String> _selectedSymptoms = {};
   final TextEditingController _messageController = TextEditingController();
   LocationData? _userLocation;
+  String? _locationError;
+  bool _locationIsLastKnown = false;
   List<Map<String, dynamic>> _nearbyHospitals = []; // From API
-  List<HospitalLocation> _localHospitals = []; // Fallback
+  List<HospitalLocation> _localHospitals = []; // Offline preview only
   bool _isLoadingLocation = false;
   bool _isSendingAlert = false;
   int _selectedCharge = 1; // Tier 1, 2, or 3
-  String? _currentAlertId;
 
   double _walletBalance = 5000.0;
 
@@ -1179,33 +1286,203 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Future<void> _getCurrentLocation() async {
-    setState(() => _isLoadingLocation = true);
+    setState(() {
+      _isLoadingLocation = true;
+      _locationError = null;
+    });
     try {
-      final location = await _locationService.getCurrentLocation();
-      if (location != null) {
+      final result = await _locationService.getCurrentLocation();
+      if (!mounted) return;
+
+      final location = result.location;
+      if (location == null) {
         setState(() {
-          _userLocation = location;
-          _localHospitals = _db.getNearbyHospitals(location, radiusKm: 50);
+          _userLocation = null;
+          _locationError = result.error;
+          _nearbyHospitals = [];
+          _localHospitals = [];
         });
+        return;
+      }
 
-        final response = await _api.getNearbyHospitals(
-          latitude: location.latitude,
-          longitude: location.longitude,
-          radiusKm: 50,
-        );
+      setState(() {
+        _userLocation = location;
+        _locationIsLastKnown = result.lastKnown;
+        _localHospitals = _db.getNearbyHospitals(location, radiusKm: 50);
+      });
 
-        if (response.success && response.data != null) {
-          setState(() {
-            _nearbyHospitals = List<Map<String, dynamic>>.from(
-                response.data['hospitals'] ?? []);
-          });
-        }
+      final response = await _api.getNearbyHospitals(
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radiusKm: 50,
+      );
+
+      if (mounted && response.success && response.data is Map) {
+        setState(() {
+          _nearbyHospitals =
+              List<Map<String, dynamic>>.from(response.data['hospitals'] ?? []);
+        });
       }
     } catch (e) {
       debugPrint('Error getting location: $e');
     } finally {
       if (mounted) setState(() => _isLoadingLocation = false);
     }
+  }
+
+  /// The alert did not reach any hospital. Say so plainly — never let the
+  /// user believe help is on the way when it is not. Resolves to true when
+  /// the user asks to retry (only offered when [retryAlertId] is given).
+  Future<bool> _showDispatchFailed(String? reason,
+      {String? retryAlertId}) async {
+    final retry = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.error_rounded, color: AppColors.brand, size: 44),
+        title: const Text('Alert NOT sent'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'No hospital has been notified. Call emergency services now: '
+              '112 (national emergency) or 108 (ambulance).',
+              style: Theme.of(dialogContext)
+                  .textTheme
+                  .bodyLarge
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            if (reason != null && reason.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(reason, style: Theme.of(dialogContext).textTheme.bodySmall),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Close'),
+          ),
+          if (retryAlertId != null)
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Retry sending'),
+            ),
+        ],
+      ),
+    );
+    return retry == true;
+  }
+
+  /// Send an alert whose payment is already settled, retrying for as long as
+  /// the user asks. Runs inside the caller's sending state, so the SOS button
+  /// stays disabled throughout.
+  Future<void> _dispatchPaidAlert(String alertId) async {
+    while (mounted) {
+      final send = await _api.sendEmergencyAlert(alertId);
+      if (!mounted) return;
+
+      var notified = send.success && send.data is Map
+          ? (send.data['hospitalsNotified'] as num?)?.toInt() ?? 0
+          : null;
+
+      // A timeout (or an "already sent" reply to a retry) does not mean the
+      // alert failed — the server may have dispatched it. Ask before telling
+      // the user it was not sent.
+      if (!send.success) notified = await _confirmedDispatchCount(alertId);
+      if (!mounted) return;
+
+      if (notified != null && notified > 0) {
+        _showDispatchSucceeded(alertId, notified);
+        return;
+      }
+      if (!await _showDispatchFailed(send.error, retryAlertId: alertId)) {
+        return;
+      }
+    }
+  }
+
+  /// How many hospitals the server has linked to this alert, or null when
+  /// that cannot be determined.
+  Future<int?> _confirmedDispatchCount(String alertId) async {
+    final details = await _api.getAlertDetails(alertId);
+    if (!details.success || details.data is! Map) return null;
+    final hospitals = details.data['hospitals'];
+    return hospitals is List ? hospitals.length : null;
+  }
+
+  void _showDispatchSucceeded(String alertId, int hospitalsNotified) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.check_circle_rounded,
+            color: AppColors.success, size: 44),
+        title: const Text('Alerts dispatched'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Emergency alert sent to $hospitalsNotified '
+              '${hospitalsNotified == 1 ? 'hospital' : 'hospitals'} with your location. '
+              'Track who has responded and their ETA in Hospital Alerts. '
+              'If your condition worsens, call 112 or 108.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            SurfaceCard(
+              padding: const EdgeInsets.all(14),
+              radius: AppRadius.md,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Remaining credit',
+                      style: Theme.of(context).textTheme.bodyMedium),
+                  Text(
+                    '₹${_walletBalance.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontFamily: AppFonts.display,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.success,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'ALERT ID  ${alertId.length > 8 ? alertId.substring(0, 8).toUpperCase() : alertId.toUpperCase()}',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: AppColors.textMuted, fontFamily: AppFonts.display),
+            ),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Done'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              open(this.context, const HospitalAlertScreen());
+            },
+            child: const Text('Track responses'),
+          ),
+        ],
+      ),
+    );
+
+    // Clear form
+    setState(() {
+      _selectedSymptoms.clear();
+      _messageController.clear();
+      _selectedCharge = 1;
+    });
   }
 
   void _sendAlertToHospitals() async {
@@ -1216,16 +1493,12 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       return;
     }
 
-    if (_messageController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Write a short message')),
-      );
-      return;
-    }
-
     if (_userLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not get your location')),
+        SnackBar(
+          content: Text(_locationError ??
+              'Waiting for your location — tap the location button to retry'),
+        ),
       );
       return;
     }
@@ -1253,7 +1526,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
           children: [
             Icon(Icons.sos_rounded, color: AppColors.brand, size: 24),
             SizedBox(width: 10),
-            Text('Confirm emergency alert'),
+            // Flexible so the title wraps instead of overflowing on phones
+            Flexible(child: Text('Confirm emergency alert')),
           ],
         ),
         content: Column(
@@ -1261,7 +1535,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'This will alert $hospitalCount hospital(s) with your location.',
+              hospitalCount == 1
+                  ? 'This will alert the nearest hospital with your location.'
+                  : 'This will alert up to $hospitalCount nearby hospitals with your location.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
@@ -1361,214 +1637,113 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     setState(() => _isSendingAlert = true);
 
     bool walletDeducted = false;
+    String? alertId;
 
     try {
-      // Generate a local fallback alert ID
-      _currentAlertId = 'ALERT_${DateTime.now().millisecondsSinceEpoch}';
-
-      // Try to run the full backend flow (create order → Razorpay → verify → send)
+      // 1. Create the order. The server also checks a hospital is in range
+      //    before taking any payment.
+      final message = _messageController.text.trim();
       final orderResponse = await _api.createPaymentOrder(
         tier: _selectedCharge,
         latitude: _userLocation!.latitude,
         longitude: _userLocation!.longitude,
         symptoms: _selectedSymptoms.join(', '),
-        message: _messageController.text,
+        message: message.isEmpty ? null : message,
       );
 
-      int hospitalsNotified = hospitalCount;
-      bool dispatchConfirmed = false;
+      if (!orderResponse.success || orderResponse.data is! Map) {
+        if (mounted) await _showDispatchFailed(orderResponse.error);
+        return;
+      }
 
-      if (orderResponse.success) {
-        _currentAlertId = orderResponse.data['alertId'];
-        final orderId = orderResponse.data['order']['id'];
-        final amountPaise = orderResponse.data['order']['amount'] ?? 0;
-        final keyId = orderResponse.data['razorpayKeyId'] ?? '';
-        final isMockGateway =
-            keyId == 'test_key' || orderId.startsWith('order_mock_');
+      final data = orderResponse.data as Map;
+      alertId = data['alertId'] as String;
+      final orderId = data['order']['id'] as String;
+      final amountPaise = (data['order']['amount'] as num?)?.toInt() ?? 0;
+      final keyId = (data['razorpayKeyId'] as String?) ?? '';
+      final isMockGateway = data['mockGateway'] == true ||
+          keyId == 'test_key' ||
+          orderId.startsWith('order_mock_');
 
-        if (!isMockGateway) {
-          // Real payment gateway configured — open Razorpay checkout.
-          final user = AuthService().currentLoggedInUser;
-          final payment = await _startRazorpayCheckout(
-            keyId: keyId,
-            orderId: orderId as String,
-            amountPaise: amountPaise as int,
-            email: user?.email ?? '',
-            name: user?.name ?? 'Élan User',
-          );
+      // 2. Pay.
+      if (!isMockGateway) {
+        // Real payment gateway configured — open Razorpay checkout.
+        final user = AuthService().currentLoggedInUser;
+        final payment = await _startRazorpayCheckout(
+          keyId: keyId,
+          orderId: orderId,
+          amountPaise: amountPaise,
+          email: user?.email ?? '',
+          name: user?.name ?? 'Élan User',
+        );
 
-          if (!payment.success) {
-            // Payment cancelled or failed — nothing deducted.
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(payment.error ?? 'Payment was not completed'),
-                ),
-              );
-            }
-            return;
-          }
-
-          final verify = await _api.verifyPayment(
-            orderId: orderId,
-            paymentId: payment.paymentId!,
-            signature: payment.signature!,
-            alertId: _currentAlertId!,
-          );
-
-          if (!verify.success) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(verify.error ?? 'Verification failed')),
-              );
-            }
-            return;
-          }
-          dispatchConfirmed = true;
-        } else {
-          // Mock gateway (no Razorpay keys) — settle via wallet credit.
-          setState(() {
-            _walletBalance -= priceValue;
-          });
-          await _saveWalletBalance();
-          walletDeducted = true;
-
-          await _api.verifyPayment(
-            orderId: orderId as String,
-            paymentId: 'wallet_${DateTime.now().millisecondsSinceEpoch}',
-            signature: 'wallet_payment',
-            alertId: _currentAlertId!,
-          );
-          dispatchConfirmed = true;
-        }
-
-        if (dispatchConfirmed) {
-          final alertResponse = await _api.sendEmergencyAlert(_currentAlertId!);
-          if (alertResponse.success) {
-            hospitalsNotified =
-                alertResponse.data['hospitalsNotified'] ?? hospitalCount;
-          }
-        }
-      } else {
-        // Backend unreachable/rejected — fall back to pure local processing
-        // using wallet credit so the demo still works offline.
-        final isNetworkIssue =
-            (orderResponse.error ?? '').startsWith('Network error');
-        if (!isNetworkIssue) {
+        if (!payment.success) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(orderResponse.error ?? 'Alert failed')),
-            );
+            await _showDispatchFailed(
+                'Payment was not completed: ${payment.error ?? 'cancelled'}');
           }
           return;
         }
 
-        setState(() {
-          _walletBalance -= priceValue;
-        });
+        final verify = await _api.verifyPayment(
+          orderId: orderId,
+          paymentId: payment.paymentId!,
+          signature: payment.signature!,
+          alertId: alertId,
+        );
+
+        if (!verify.success) {
+          if (mounted) await _showDispatchFailed(verify.error);
+          return;
+        }
+      } else {
+        // Mock gateway (development: no Razorpay keys) — settle via the demo
+        // wallet credit.
+        if (_walletBalance < priceValue) {
+          if (mounted) {
+            await _showDispatchFailed(
+                'Insufficient demo credit — need $price, have ₹${_walletBalance.toStringAsFixed(0)}');
+          }
+          return;
+        }
+        setState(() => _walletBalance -= priceValue);
         await _saveWalletBalance();
         walletDeducted = true;
-        hospitalsNotified = hospitalCount;
-      }
 
-      // Also save to local database
-      for (int i = 0; i < hospitalCount && i < _localHospitals.length; i++) {
-        final hospital = _localHospitals[i];
-        final alert = HospitalAlert(
-          id: '${_currentAlertId}_$i',
-          hospitalId: hospital.id,
-          hospitalName: hospital.name,
-          timestamp: DateTime.now(),
-          symptoms: _selectedSymptoms.toList(),
-          message: _messageController.text,
-          chargeLevels: _selectedCharge,
-          messageDelivered: true,
-          userLocation:
-              '${_userLocation!.latitude}, ${_userLocation!.longitude}',
+        final verify = await _api.verifyPayment(
+          orderId: orderId,
+          paymentId: 'wallet_${DateTime.now().millisecondsSinceEpoch}',
+          signature: 'wallet_payment',
+          alertId: alertId,
         );
-        _db.addHospitalAlert(alert);
+        if (!verify.success) {
+          await _refundWallet(priceValue);
+          walletDeducted = false;
+          if (mounted) await _showDispatchFailed(verify.error);
+          return;
+        }
       }
 
-      if (!mounted) return;
-      // Success!
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          icon: const Icon(Icons.check_circle_rounded,
-              color: AppColors.success, size: 44),
-          title: const Text('Alerts dispatched'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Emergency alerts sent to $hospitalsNotified hospital(s). Units have been notified and will respond shortly.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              SurfaceCard(
-                padding: const EdgeInsets.all(14),
-                radius: AppRadius.md,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Remaining credit',
-                        style: Theme.of(context).textTheme.bodyMedium),
-                    Text(
-                      '₹${_walletBalance.toStringAsFixed(0)}',
-                      style: const TextStyle(
-                        fontFamily: AppFonts.display,
-                        fontSize: 19,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.success,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'ALERT ID  ${_currentAlertId!.substring(0, 8).toUpperCase()}',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppColors.textMuted, fontFamily: AppFonts.display),
-              ),
-            ],
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text('Done'),
-            ),
-          ],
-        ),
-      );
-
-      // Clear form
-      setState(() {
-        _selectedSymptoms.clear();
-        _messageController.clear();
-        _selectedCharge = 1;
-        _currentAlertId = null;
-      });
+      // 3. Dispatch. Payment is settled from here on, so a failure offers a
+      //    retry of the same alert rather than a second charge.
+      await _dispatchPaidAlert(alertId);
     } catch (e) {
       debugPrint('Emergency dispatch error: $e');
-      if (walletDeducted) {
-        setState(() {
-          _walletBalance += priceValue;
-        });
-        await _saveWalletBalance();
-      }
+      if (walletDeducted) await _refundWallet(priceValue);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Something went wrong: $e')),
-      );
+      await _showDispatchFailed('Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _isSendingAlert = false);
     }
+  }
+
+  Future<void> _refundWallet(double amount) async {
+    if (mounted) {
+      setState(() => _walletBalance += amount);
+    } else {
+      _walletBalance += amount;
+    }
+    await _saveWalletBalance();
   }
 
   /// Opens the Razorpay checkout and resolves once the sheet is closed.
@@ -1620,13 +1795,16 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       'theme': {'color': '#B72236'},
     });
 
-    return completer.future.timeout(
-      const Duration(minutes: 3),
-      onTimeout: () => _RazorpayPaymentResult(
-        success: false,
-        error: 'Payment timed out',
-      ),
-    );
+    // Detach the event listeners once the sheet resolves either way
+    return completer.future
+        .timeout(
+          const Duration(minutes: 3),
+          onTimeout: () => _RazorpayPaymentResult(
+            success: false,
+            error: 'Payment timed out',
+          ),
+        )
+        .whenComplete(razorpay.clear);
   }
 
   @override
@@ -1638,7 +1816,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   @override
   Widget build(BuildContext context) {
     final displayHospitals = _displayHospitals;
-    final totalCost = _selectedCharge * displayHospitals.length;
 
     return AppBackground(
       child: SafeArea(
@@ -1686,7 +1863,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                     child: Text(
                                       _isLoadingLocation
                                           ? 'Acquiring position…'
-                                          : 'Live position',
+                                          : _locationError != null
+                                              ? 'Location unavailable'
+                                              : _locationIsLastKnown
+                                                  ? 'Last known position'
+                                                  : 'Live position',
                                       style: Theme.of(context)
                                           .textTheme
                                           .labelMedium
@@ -1711,25 +1892,40 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                     Container(
                                       width: 6,
                                       height: 6,
-                                      decoration: const BoxDecoration(
-                                          color: AppColors.success,
+                                      decoration: BoxDecoration(
+                                          color: _userLocation == null
+                                              ? AppColors.brand
+                                              : _locationIsLastKnown
+                                                  ? AppColors.warning
+                                                  : AppColors.success,
                                           shape: BoxShape.circle),
                                     ),
                                   ],
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              Text(
-                                _userLocation != null
-                                    ? '${_userLocation!.latitude.toStringAsFixed(4)}°, ${_userLocation!.longitude.toStringAsFixed(4)}°'
-                                    : 'Waiting for coordinates…',
-                                style: const TextStyle(
-                                  fontFamily: AppFonts.display,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textPrimary,
+                              if (_userLocation == null &&
+                                  _locationError != null &&
+                                  !_isLoadingLocation)
+                                Text(
+                                  _locationError!,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(color: AppColors.brand),
+                                )
+                              else
+                                Text(
+                                  _userLocation != null
+                                      ? '${_userLocation!.latitude.toStringAsFixed(4)}°, ${_userLocation!.longitude.toStringAsFixed(4)}°'
+                                      : 'Waiting for coordinates…',
+                                  style: const TextStyle(
+                                    fontFamily: AppFonts.display,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
@@ -1760,7 +1956,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                           Text(
                             _isLoadingLocation
                                 ? 'Scanning for care units…'
-                                : 'No hospitals found nearby',
+                                : _userLocation == null
+                                    ? 'Hospitals appear once your location is known'
+                                    : 'No hospitals found nearby',
+                            textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         ],
@@ -1770,10 +1969,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     ...displayHospitals.map((hospital) {
                       final name = hospital['name'] ?? 'Unknown Hospital';
                       final phone = hospital['phone'] ?? '';
-                      final distance = hospital['distanceKm'] ?? 0.0;
-                      final distText = distance is double
-                          ? distance.toStringAsFixed(1)
-                          : '$distance';
+                      final distance =
+                          (hospital['distanceKm'] as num?)?.toDouble() ?? 0.0;
+                      final distText = formatDistance(distance);
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.all(14),
@@ -1799,7 +1997,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleMedium,
-                                      maxLines: 1,
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis),
                                   const SizedBox(height: 2),
                                   Text(phone,
@@ -1817,7 +2015,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
-                                '$distText km',
+                                distText,
                                 style: const TextStyle(
                                   fontFamily: AppFonts.display,
                                   fontSize: 12.5,
@@ -1897,7 +2095,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   const SizedBox(height: AppSpace.xxl),
 
                   // Message
-                  SectionHeader(eyebrow: 'Details', title: 'Message'),
+                  SectionHeader(
+                      eyebrow: 'Details (optional)', title: 'Message'),
                   const SizedBox(height: AppSpace.md),
                   TextField(
                     controller: _messageController,
@@ -1965,7 +2164,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                           .titleMedium,
                                     ),
                                     Text(
-                                      'hospitals',
+                                      info['hospitals'] == 1
+                                          ? 'hospital'
+                                          : 'hospitals',
                                       style:
                                           Theme.of(context).textTheme.bodySmall,
                                     ),
@@ -1999,25 +2200,34 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                       Icon(Icons.calculate_rounded,
                           size: 14, color: AppColors.textMuted),
                       const SizedBox(width: 6),
-                      Text(
-                        displayHospitals.isEmpty
-                            ? 'Total charge ₹0 — hospitals listed above'
-                            : 'Total charge ₹$totalCost for ${displayHospitals.length} hospital(s)',
-                        style: Theme.of(context).textTheme.bodySmall,
+                      Expanded(
+                        child: Text(
+                          // Tiers are a flat price, not per hospital
+                          'Flat charge ${_tierInfo[_selectedCharge]!['price']} — '
+                          'alerts up to $_tierHospitalCount nearest '
+                          '${_tierHospitalCount == 1 ? 'hospital' : 'hospitals'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: AppSpace.xl),
-
-                  // Send
-                  PrimaryButton(
-                    label: 'Send Emergency Alert',
-                    icon: Icons.sos_rounded,
-                    loading: _isSendingAlert,
-                    onPressed: _isSendingAlert ? null : _sendAlertToHospitals,
-                  ),
                 ],
+              ),
+            ),
+            // Send — pinned below the form so the SOS action is always one
+            // tap away, never two screens of scrolling down.
+            Container(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.xl, AppSpace.md, AppSpace.xl, AppSpace.lg),
+              decoration: const BoxDecoration(
+                color: AppColors.ink,
+                border: Border(top: BorderSide(color: AppColors.hairline)),
+              ),
+              child: PrimaryButton(
+                label: 'Send Emergency Alert',
+                icon: Icons.sos_rounded,
+                loading: _isSendingAlert,
+                onPressed: _isSendingAlert ? null : _sendAlertToHospitals,
               ),
             ),
           ],
@@ -2071,7 +2281,6 @@ class HospitalAlertScreen extends StatefulWidget {
 }
 
 class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
-  final _db = DatabaseService();
   final _api = ApiService();
 
   List<HospitalAlert> _remoteAlerts = [];
@@ -2141,16 +2350,17 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
     final hospitals =
         (alert['hospitals'] as List? ?? []).whereType<Map<String, dynamic>>();
     if (hospitals.isEmpty) {
+      // Created but never dispatched (payment abandoned or dispatch failed)
       return [
         HospitalAlert(
           id: (alert['id'] as String?) ?? '',
           hospitalId: '',
-          hospitalName: 'All nearby care units',
+          hospitalName: 'Not dispatched',
           timestamp: createdAt,
           symptoms: symptoms,
           message: message,
           chargeLevels: tier,
-          messageDelivered: true,
+          messageDelivered: false,
           userLocation: locationText,
         ),
       ];
@@ -2159,6 +2369,7 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
     return hospitals
         .map((hospital) => HospitalAlert(
               id: '${alert['id']}_${hospital['name']}',
+              alertId: (alert['id'] as String?) ?? '',
               hospitalId: (hospital['name'] as String?) ?? '',
               hospitalName: (hospital['name'] as String?) ?? 'Care unit',
               timestamp: createdAt,
@@ -2167,13 +2378,23 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
               chargeLevels: tier,
               messageDelivered: hospital['notificationSent'] == true,
               userLocation: locationText,
+              acknowledged: hospital['acknowledged'] == true,
+              declined: hospital['declined'] == true,
+              etaMinutes: (hospital['etaMinutes'] as num?)?.toInt(),
             ))
         .toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final alerts = [..._remoteAlerts, ..._db.hospitalAlerts];
+    // One card per emergency (each fans out to several hospitals), newest first
+    final sorted = [..._remoteAlerts]
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final grouped = <String, List<HospitalAlert>>{};
+    for (final dispatch in sorted) {
+      grouped.putIfAbsent(dispatch.alertId, () => []).add(dispatch);
+    }
+    final alerts = grouped.values.toList();
 
     return AppBackground(
       glow: AppColors.alert,
@@ -2204,7 +2425,7 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
                   ),
                   if (alerts.isNotEmpty)
                     StatusBadge(
-                      label: '$alerts.length',
+                      label: '${alerts.length}',
                       color: AppColors.alert,
                     ),
                 ],
@@ -2231,11 +2452,10 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
                           AppSpace.xl, AppSpace.sm, AppSpace.xl, 32),
                       itemCount: alerts.length,
                       itemBuilder: (context, index) {
-                        final alert =
-                            alerts[alerts.length - 1 - index]; // Reverse order
+                        final dispatches = alerts[index];
                         return _AlertCard(
-                          alert: alert,
-                          time: _formatTime(alert.timestamp),
+                          dispatches: dispatches,
+                          time: _formatTime(dispatches.first.timestamp),
                         );
                       },
                     ),
@@ -2247,13 +2467,53 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
   }
 }
 
+/// One emergency: what was reported once, then each hospital it reached and
+/// how that hospital responded.
 class _AlertCard extends StatelessWidget {
-  const _AlertCard({required this.alert, required this.time});
-  final HospitalAlert alert;
+  const _AlertCard({required this.dispatches, required this.time});
+  final List<HospitalAlert> dispatches;
   final String time;
+
+  HospitalAlert get _first => dispatches.first;
+
+  /// Headline for the whole alert — the thing the sender most needs.
+  (String, Color) get _summary {
+    final coming = dispatches.where((d) => d.acknowledged).toList();
+    if (coming.isNotEmpty) {
+      final etas = coming.map((d) => d.etaMinutes).whereType<int>().toList()
+        ..sort();
+      return (
+        etas.isEmpty ? 'Help is coming' : 'Help is coming · ${etas.first} min',
+        AppColors.success,
+      );
+    }
+    if (dispatches.every((d) => !d.messageDelivered && !d.declined)) {
+      return ('Not delivered', AppColors.brand);
+    }
+    if (dispatches.every((d) => d.declined)) {
+      return ('All declined — call 112', AppColors.brand);
+    }
+    return ('Awaiting reply', AppColors.warning);
+  }
+
+  static (String, Color) _hospitalStatus(HospitalAlert d) {
+    if (d.acknowledged) {
+      return (
+        d.etaMinutes != null ? 'Coming · ${d.etaMinutes} min' : 'Acknowledged',
+        AppColors.success,
+      );
+    }
+    if (d.declined) return ('Declined', AppColors.textMuted);
+    if (!d.messageDelivered) return ('Not delivered', AppColors.brand);
+    return ('Awaiting reply', AppColors.warning);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final (summary, summaryColor) = _summary;
+    final textTheme = Theme.of(context).textTheme;
+    final dispatched = dispatches.where((d) => d.hospitalId.isNotEmpty);
+
     return SurfaceCard(
       radius: AppRadius.md,
       margin: const EdgeInsets.only(bottom: 12),
@@ -2264,8 +2524,8 @@ class _AlertCard extends StatelessWidget {
           Row(
             children: [
               IconTile(
-                icon: Icons.local_hospital_rounded,
-                color: AppColors.alert,
+                icon: Icons.sos_rounded,
+                color: summaryColor,
                 size: 42,
                 iconSize: 20,
               ),
@@ -2274,9 +2534,10 @@ class _AlertCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(alert.hospitalName,
-                        style: Theme.of(context).textTheme.titleMedium,
-                        maxLines: 1,
+                    Text(summary,
+                        style: textTheme.titleMedium
+                            ?.copyWith(color: summaryColor),
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 2),
                     Row(
@@ -2284,22 +2545,27 @@ class _AlertCard extends StatelessWidget {
                         Icon(Icons.schedule_rounded,
                             size: 12, color: AppColors.textMuted),
                         const SizedBox(width: 4),
-                        Text(time,
-                            style: Theme.of(context).textTheme.bodySmall),
+                        Flexible(
+                          child: Text(
+                            '$time · Tier ${_first.chargeLevels} · ₹${_first.chargeLevels}',
+                            style: textTheme.bodySmall,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
-              const StatusBadge(label: 'Sent'),
             ],
           ),
           const SizedBox(height: 14),
-          if (alert.symptoms.isNotEmpty) ...[
+          if (_first.symptoms.isNotEmpty) ...[
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: alert.symptoms
+              children: _first.symptoms
                   .map((s) => Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 5),
@@ -2320,46 +2586,59 @@ class _AlertCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.ink.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-              border: Border.all(color: AppColors.hairline),
+          if (_first.message.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.ink.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: AppColors.hairline),
+              ),
+              child: Text(
+                _first.message,
+                style: textTheme.bodyMedium
+                    ?.copyWith(color: AppColors.textSecondary, height: 1.5),
+              ),
             ),
-            child: Text(
-              alert.message,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: AppColors.textSecondary, height: 1.5),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
+            const SizedBox(height: 12),
+          ],
+          // Per-hospital responses
+          for (final d in dispatched)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
                 children: [
-                  const Icon(Icons.currency_rupee_rounded,
-                      size: 14, color: AppColors.warning),
-                  const SizedBox(width: 4),
-                  Text(
-                    '₹${alert.chargeLevels}',
-                    style: const TextStyle(
-                      fontFamily: AppFonts.display,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.warning,
+                  const Icon(Icons.local_hospital_rounded,
+                      size: 16, color: AppColors.alert),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      d.hospitalName,
+                      style: textTheme.bodyMedium
+                          ?.copyWith(color: AppColors.textPrimary),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Builder(builder: (_) {
+                    final (label, color) = _hospitalStatus(d);
+                    return StatusBadge(label: label, color: color);
+                  }),
                 ],
               ),
+            ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.location_on_outlined,
+                  size: 14, color: AppColors.textMuted),
+              const SizedBox(width: 4),
               Flexible(
                 child: Text(
-                  alert.userLocation,
-                  style: Theme.of(context).textTheme.bodySmall,
+                  _first.userLocation,
+                  style: textTheme.bodySmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -2390,6 +2669,7 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
   String _filter = 'all';
   bool _loading = true;
   bool _offline = false;
+  bool _pendingApproval = false;
   String? _error;
   Timer? _poll;
 
@@ -2431,6 +2711,22 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
         _stats = result.inbox!.stats;
         _loading = false;
         _offline = false;
+        _pendingApproval = false;
+        _error = null;
+      });
+      return;
+    }
+
+    if (result.pendingApproval) {
+      // Not approved (or access revoked): don't keep showing cached patient
+      // alerts, and don't present it as a connection problem.
+      await _receiver.clearCache();
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _pendingApproval = true;
+        _alerts = [];
+        _stats = const ReceiverStats();
         _error = null;
       });
       return;
@@ -2438,6 +2734,7 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
 
     setState(() {
       _loading = false;
+      _pendingApproval = false;
       if (_alerts.isEmpty) {
         _error = result.error;
       } else {
@@ -2670,6 +2967,16 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: AppColors.alert),
                     )
+                  : _pendingApproval
+                  ? const EmptyState(
+                      icon: Icons.hourglass_top_rounded,
+                      title: 'Awaiting approval',
+                      message:
+                          'An administrator needs to approve your staff account '
+                          'before alerts for this hospital appear here. This '
+                          'page updates automatically once you are approved.',
+                      color: AppColors.warning,
+                    )
                   : _error != null && _alerts.isEmpty
                       ? EmptyState(
                           icon: Icons.cloud_off_rounded,
@@ -2742,48 +3049,45 @@ class _FilterChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: _labels.entries.map((entry) {
-          final isSelected = entry.key == selected;
-          final color = switch (entry.key) {
-            'pending' => AppColors.brand,
-            'acknowledged' => AppColors.success,
-            'declined' => AppColors.textSecondary,
-            _ => AppColors.alert,
-          };
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => onChanged(entry.key),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? color.withValues(alpha: 0.16)
-                      : AppColors.surface,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: isSelected
-                        ? color.withValues(alpha: 0.5)
-                        : AppColors.hairline,
-                  ),
-                ),
-                child: Text(
-                  '${entry.value}  ${counts[entry.key] ?? 0}',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: isSelected ? color : AppColors.textSecondary,
-                  ),
-                ),
+    // Wrap rather than a sideways scroll: with four filters, a chip clipped
+    // at the gutter just looks cut off.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _labels.entries.map((entry) {
+        final isSelected = entry.key == selected;
+        final color = switch (entry.key) {
+          'pending' => AppColors.brand,
+          'acknowledged' => AppColors.success,
+          'declined' => AppColors.textSecondary,
+          _ => AppColors.alert,
+        };
+        return GestureDetector(
+          onTap: () => onChanged(entry.key),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? color.withValues(alpha: 0.16)
+                  : AppColors.surface,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: isSelected
+                    ? color.withValues(alpha: 0.5)
+                    : AppColors.hairline,
               ),
             ),
-          );
-        }).toList(),
-      ),
+            child: Text(
+              '${entry.value}  ${counts[entry.key] ?? 0}',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: isSelected ? color : AppColors.textSecondary,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }
@@ -2853,7 +3157,7 @@ class _ReceiverAlertCard extends StatelessWidget {
                           const Icon(Icons.near_me_rounded,
                               size: 12, color: AppColors.textMuted),
                           const SizedBox(width: 4),
-                          Text('${alert.distanceKm!.toStringAsFixed(1)} km',
+                          Text(formatDistance(alert.distanceKm!),
                               style: Theme.of(context).textTheme.bodySmall),
                         ],
                       ],
@@ -3085,6 +3389,14 @@ class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
                   SurfaceCard(
                     child: Column(
                       children: [
+                        // Full name here too: the header truncates long names
+                        InfoRow(
+                          icon: Icons.person_rounded,
+                          label: 'Patient',
+                          value: _alert.patientName,
+                          color: AppColors.alert,
+                        ),
+                        Divider(height: 24, color: AppColors.hairline),
                         InfoRow(
                           icon: Icons.my_location_rounded,
                           label: 'Patient coordinates',
@@ -3098,7 +3410,7 @@ class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
                             icon: Icons.near_me_rounded,
                             label: 'Distance from this hospital',
                             value:
-                                '${_alert.distanceKm!.toStringAsFixed(2)} km',
+                                formatDistance(_alert.distanceKm!),
                             color: AppColors.sky,
                           ),
                         ],
@@ -3366,9 +3678,8 @@ class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
                                     InfoRow(
                                       icon: Icons.place_rounded,
                                       label: 'Address',
-                                      value: address.isEmpty
-                                          ? 'Not set'
-                                          : address,
+                                      value:
+                                          address.isEmpty ? 'Not set' : address,
                                       color: AppColors.sky,
                                     ),
                                     Divider(
@@ -3714,6 +4025,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ),
                         const SizedBox(height: 18),
                         Text(user?.name ?? 'Guest',
+                            textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.displayMedium),
                         const SizedBox(height: 6),
                         Text(user?.email ?? '—',
@@ -3933,7 +4245,6 @@ class MonitoringScreen extends StatefulWidget {
 }
 
 class _MonitoringScreenState extends State<MonitoringScreen> {
-  final _db = DatabaseService();
   final _api = ApiService();
 
   final List<VitalSigns> _remoteVitals = [];
@@ -3988,7 +4299,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final vitals = [..._remoteVitals, ..._db.vitalSigns];
+    final vitals = _remoteVitals;
 
     return AppBackground(
       glow: AppColors.success,
@@ -3997,7 +4308,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           children: [
             ScreenHeader(
               eyebrow: 'Telemetry',
-              title: 'Monitoring & tests',
+              title: 'Monitoring',
               onBack: () => Navigator.of(context).pop(),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -4070,6 +4381,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   }
 }
 
+/// Readings store an ISO timestamp; older ones only kept "10:15"-style times.
+String formatVitalTimestamp(String raw) {
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return raw;
+  final local = parsed.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.day)}/${two(local.month)} ${two(local.hour)}:${two(local.minute)}';
+}
+
 class _VitalsCard extends StatelessWidget {
   const _VitalsCard({required this.vitals, this.onTap});
   final VitalSigns vitals;
@@ -4079,7 +4399,7 @@ class _VitalsCard extends StatelessWidget {
     if (vitals.heartRate > 120 ||
         vitals.heartRate < 60 ||
         vitals.oxygenLevel < 90 ||
-        vitals.temperature > 99.5) {
+        vitals.hasFever) {
       return AppColors.brand;
     }
     if (vitals.heartRate > 100 || vitals.oxygenLevel < 95) {
@@ -4151,7 +4471,7 @@ class _VitalsCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleLarge),
               ),
               StatusBadge(
-                label: vitals.timestamp,
+                label: formatVitalTimestamp(vitals.timestamp),
                 color: color,
               ),
             ],
@@ -4164,17 +4484,17 @@ class _VitalsCard extends StatelessWidget {
                   Icons.favorite_rounded,
                   'HEART RATE',
                   '${vitals.heartRate} bpm',
-                  vitals.heartRate > 120 || vitals.heartRate < 60),
+                  vitals.heartRate > 100 || vitals.heartRate < 60),
               const SizedBox(width: 10),
               _vitalBadge(context, Icons.air_rounded, 'OXYGEN',
-                  '${vitals.oxygenLevel}%', vitals.oxygenLevel < 90),
+                  '${vitals.oxygenLevel}%', vitals.oxygenLevel < 95),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
               _vitalBadge(context, Icons.thermostat_rounded, 'TEMP',
-                  '${vitals.temperature}°F', vitals.temperature > 99.5),
+                  vitals.temperatureLabel, vitals.hasFever),
               const SizedBox(width: 10),
               _vitalBadge(context, Icons.monitor_heart_outlined, 'BLOOD PRESS',
                   vitals.bloodPressure, false),
@@ -4194,7 +4514,7 @@ class VitalDetailScreen extends StatelessWidget {
     if (vitals.heartRate > 120 ||
         vitals.heartRate < 60 ||
         vitals.oxygenLevel < 90 ||
-        vitals.temperature > 99.5) {
+        vitals.hasFever) {
       return AppColors.brand;
     }
     if (vitals.heartRate > 100 || vitals.oxygenLevel < 95) {
@@ -4215,7 +4535,8 @@ class VitalDetailScreen extends StatelessWidget {
               eyebrow: 'Telemetry record',
               title: vitals.patientName,
               onBack: () => Navigator.of(context).pop(),
-              trailing: StatusBadge(label: vitals.timestamp, color: color),
+              trailing: StatusBadge(
+                  label: formatVitalTimestamp(vitals.timestamp), color: color),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -4257,8 +4578,8 @@ class VitalDetailScreen extends StatelessWidget {
                           icon: Icons.thermostat_rounded,
                           label: 'TEMPERATURE',
                           value: vitals.temperature.toStringAsFixed(1),
-                          unit: '°F',
-                          color: vitals.temperature > 99.5
+                          unit: vitals.isCelsius ? '°C' : '°F',
+                          color: vitals.hasFever
                               ? AppColors.brand
                               : AppColors.success,
                         ),
@@ -4443,7 +4764,8 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
       bloodPressure: bloodPressure,
       temperature: temperature,
       oxygenLevel: oxygen,
-      timestamp: '${now.hour}:${now.minute.toString().padLeft(2, '0')}',
+      // Full ISO date so readings sort correctly across days
+      timestamp: now.toUtc().toIso8601String(),
     );
 
     if (!mounted) return;
@@ -4529,7 +4851,7 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
                         Expanded(
                           child: _AuthField(
                             controller: _temperatureController,
-                            label: 'Temp °F',
+                            label: 'Temp °C/°F',
                             icon: Icons.thermostat_rounded,
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true),
@@ -4539,7 +4861,7 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
                         Expanded(
                           child: _AuthField(
                             controller: _bloodPressureController,
-                            label: 'Blood press',
+                            label: 'BP 120/80',
                             icon: Icons.compress_rounded,
                           ),
                         ),
@@ -4574,7 +4896,6 @@ class PatientScreen extends StatefulWidget {
 }
 
 class _PatientScreenState extends State<PatientScreen> {
-  final _db = DatabaseService();
   final _api = ApiService();
 
   final List<PatientRecord> _remotePatients = [];
@@ -4635,7 +4956,7 @@ class _PatientScreenState extends State<PatientScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final patients = [..._remotePatients, ..._db.patients];
+    final patients = _remotePatients;
 
     return AppBackground(
       glow: AppColors.sky,
@@ -5098,8 +5419,15 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                         Expanded(
                           child: _AuthField(
                             controller: _admissionDateController,
-                            label: 'Admission date',
+                            label: 'Admitted',
                             icon: Icons.calendar_today_rounded,
+                            onTap: () async {
+                              if (await pickDateInto(
+                                      context, _admissionDateController) &&
+                                  mounted) {
+                                setState(() {});
+                              }
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -5141,7 +5469,6 @@ class ReportScreen extends StatefulWidget {
 }
 
 class _ReportScreenState extends State<ReportScreen> {
-  final _db = DatabaseService();
   final _api = ApiService();
 
   final List<MedicalReport> _remoteReports = [];
@@ -5195,7 +5522,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final reports = [..._remoteReports, ..._db.reports];
+    final reports = _remoteReports;
 
     return AppBackground(
       glow: AppColors.warning,
@@ -5308,8 +5635,10 @@ class _ReportCard extends StatelessWidget {
                     Text(report.reportType,
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 2),
-                    Text('Dr. ${report.doctor.split(' ').last}',
-                        style: Theme.of(context).textTheme.bodySmall),
+                    Text(report.doctor,
+                        style: Theme.of(context).textTheme.bodySmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
@@ -5577,6 +5906,13 @@ class _AddReportScreenState extends State<AddReportScreen> {
                             controller: _dateController,
                             label: 'Date',
                             icon: Icons.calendar_today_rounded,
+                            onTap: () async {
+                              if (await pickDateInto(
+                                      context, _dateController) &&
+                                  mounted) {
+                                setState(() {});
+                              }
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),

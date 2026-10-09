@@ -1,6 +1,7 @@
 const express = require('express');
 const Alert = require('../models/Alert');
 const Hospital = require('../models/Hospital');
+const User = require('../models/User');
 const notificationService = require('../services/notificationService');
 const { authMiddleware, requireRole } = require('../middleware/auth');
 const { isValidCoordinates } = require('../utils/validation');
@@ -21,7 +22,22 @@ function resolveHospital(req, res) {
         return hospital;
     }
 
-    const hospitalId = req.user.hospitalId;
+    // Read the account fresh rather than trusting the token, so revoking or
+    // reassigning staff takes effect without waiting for the token to expire.
+    const staff = User.findById(req.user.userId);
+    if (!staff || staff.role !== 'hospital') {
+        res.status(403).json({ error: 'Insufficient permissions' });
+        return null;
+    }
+    if (staff.approved === 0) {
+        res.status(403).json({
+            error: 'Your staff account is awaiting approval by an administrator',
+            code: 'pending_approval'
+        });
+        return null;
+    }
+
+    const hospitalId = staff.hospital_id;
     if (!hospitalId) {
         res.status(403).json({ error: 'This account is not linked to a hospital' });
         return null;

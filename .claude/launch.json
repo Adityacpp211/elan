@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["backend/server.js"],
+      "port": 3000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Users/Lenovo/AppData/Local/Temp/claude/C--cardio-aid/476a7615-2901-4c77-9d7a-8643ca8bced0/scratchpad/serve_web.js",
+        "build/web",
+        "8080"
+      ],
+      "port": 8080
+    }
+  ]
+}

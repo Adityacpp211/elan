@@ -4,7 +4,8 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Hospital = require('../models/Hospital');
 const config = require('../config/config');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, requireRole } = require('../middleware/auth');
+const { isValidCoordinates } = require('../utils/validation');
 
 const router = express.Router();
 
@@ -33,6 +34,16 @@ function resolveRole(role, hospitalId) {
     return { role, hospitalId: null };
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isNonEmptyString(value) {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isApproved(user) {
+    return user.approved === undefined || user.approved === null || user.approved === 1;
+}
+
 function publicUser(user) {
     return {
         id: user.id,
@@ -40,7 +51,8 @@ function publicUser(user) {
         email: user.email,
         phone: user.phone || '',
         role: user.role || 'member',
-        hospitalId: user.hospital_id || null
+        hospitalId: user.hospital_id || null,
+        approved: isApproved(user)
     };
 }
 
@@ -63,8 +75,12 @@ router.post('/register', async (req, res) => {
         const { name, email, password, role, hospitalId } = req.body;
 
         // Validation
-        if (!name || !email || !password) {
+        if (!isNonEmptyString(name) || !isNonEmptyString(email) || typeof password !== 'string' || !password) {
             return res.status(400).json({ error: 'Name, email, and password are required' });
+        }
+
+        if (!EMAIL_PATTERN.test(email.trim())) {
+            return res.status(400).json({ error: 'A valid email address is required' });
         }
 
         if (password.length < 6) {
@@ -76,8 +92,10 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ error: resolved.error });
         }
 
+        const normalizedEmail = email.trim().toLowerCase();
+
         // Check if email exists
-        const existingUser = User.findByEmail(email.toLowerCase());
+        const existingUser = User.findByEmail(normalizedEmail);
         if (existingUser) {
             return res.status(400).json({ error: 'Email already registered' });
         }
@@ -86,16 +104,24 @@ router.post('/register', async (req, res) => {
         const saltRounds = 10;
         const passwordHash = await bcrypt.hash(password, saltRounds);
 
+        // Hospital staff see patients' alerts, phone numbers and live locations,
+        // so a self-service staff account stays locked until an admin approves it.
+        const needsApproval = resolved.role === 'hospital';
+
         // Create user
-        const user = User.create(name, email.toLowerCase(), passwordHash, {
+        const user = User.create(name.trim(), normalizedEmail, passwordHash, {
             role: resolved.role,
-            hospitalId: resolved.hospitalId
+            hospitalId: resolved.hospitalId,
+            approved: !needsApproval
         });
 
         res.status(201).json({
-            message: 'Registration successful',
+            message: needsApproval
+                ? 'Registration received. An administrator must approve your staff account before you can view alerts.'
+                : 'Registration successful',
             token: signToken(user),
             user: publicUser(user),
+            pendingApproval: needsApproval,
             requiresLocation: resolved.role === 'member' // Members broadcast their location
         });
     } catch (error) {
@@ -109,12 +135,12 @@ router.post('/login', async (req, res) => {
     try {
         const { email, password, fcmToken } = req.body;
 
-        if (!email || !password) {
+        if (!isNonEmptyString(email) || typeof password !== 'string' || !password) {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
         // Find user
-        const user = User.findByEmail(email.toLowerCase());
+        const user = User.findByEmail(email.trim().toLowerCase());
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
@@ -126,7 +152,7 @@ router.post('/login', async (req, res) => {
         }
 
         // Update FCM token if provided
-        if (fcmToken) {
+        if (isNonEmptyString(fcmToken)) {
             User.updateFcmToken(user.id, fcmToken);
         }
 
@@ -134,6 +160,7 @@ router.post('/login', async (req, res) => {
             message: 'Login successful',
             token: signToken(user),
             user: publicUser(user),
+            pendingApproval: !isApproved(user),
             requiresLocation: (user.role || 'member') === 'member'
         });
     } catch (error) {
@@ -147,7 +174,7 @@ router.post('/location', authMiddleware, async (req, res) => {
     try {
         const { latitude, longitude } = req.body;
 
-        if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+        if (!isValidCoordinates(latitude, longitude)) {
             return res.status(400).json({ error: 'Valid latitude and longitude are required' });
         }
 
@@ -172,7 +199,7 @@ router.post('/fcm-token', authMiddleware, async (req, res) => {
     try {
         const { fcmToken } = req.body;
 
-        if (!fcmToken) {
+        if (!isNonEmptyString(fcmToken)) {
             return res.status(400).json({ error: 'FCM token is required' });
         }
 
@@ -202,6 +229,7 @@ router.get('/me', authMiddleware, (req, res) => {
         phone: user.phone || '',
         role: user.role || 'member',
         hospitalId: user.hospital_id || null,
+        approved: isApproved(user),
         hospital: hospital
             ? {
                 id: hospital.id,
@@ -225,7 +253,7 @@ router.put('/me', authMiddleware, (req, res) => {
     try {
         const { name, phone } = req.body;
 
-        if (!name || name.trim().length === 0) {
+        if (!isNonEmptyString(name)) {
             return res.status(400).json({ error: 'Name is required' });
         }
 
@@ -245,6 +273,39 @@ router.put('/me', authMiddleware, (req, res) => {
     } catch (error) {
         console.error('Profile update error:', error);
         res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
+// ==================== STAFF APPROVAL (role: admin) ====================
+
+// List hospital-staff signups waiting for approval
+router.get('/staff/pending', authMiddleware, requireRole('admin'), (req, res) => {
+    try {
+        const pending = User.findPendingStaff().map(publicUser);
+        res.json({ count: pending.length, staff: pending });
+    } catch (error) {
+        console.error('Pending staff error:', error);
+        res.status(500).json({ error: 'Failed to fetch pending staff' });
+    }
+});
+
+// Approve or revoke a hospital-staff account
+router.post('/staff/:id/approve', authMiddleware, requireRole('admin'), (req, res) => {
+    try {
+        const user = User.findById(req.params.id);
+        if (!user || user.role !== 'hospital') {
+            return res.status(404).json({ error: 'Staff account not found' });
+        }
+
+        const approved = req.body?.approved !== false;
+        const updated = User.setApproved(user.id, approved);
+        res.json({
+            message: approved ? 'Staff account approved' : 'Staff access revoked',
+            user: publicUser(updated)
+        });
+    } catch (error) {
+        console.error('Approve staff error:', error);
+        res.status(500).json({ error: 'Failed to update staff account' });
     }
 });
 

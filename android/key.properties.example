@@ -1,0 +1,6 @@
+# Copy to key.properties (git-ignored) and fill in your release keystore details.
+# storeFile is relative to android/app/.
+storeFile=release.keystore
+storePassword=CHANGE_ME
+keyAlias=cardio_aid_release
+keyPassword=CHANGE_ME

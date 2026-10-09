@@ -35,6 +35,7 @@ async function initializeDatabase() {
       phone TEXT,
       role TEXT DEFAULT 'member',
       hospital_id TEXT,
+      approved INTEGER DEFAULT 1,
       fcm_token TEXT,
       last_latitude REAL,
       last_longitude REAL,
@@ -154,6 +155,11 @@ async function initializeDatabase() {
   }
   if (!userColumns.some((c) => c.name === 'hospital_id')) {
     db.run('ALTER TABLE users ADD COLUMN hospital_id TEXT');
+  }
+  if (!userColumns.some((c) => c.name === 'approved')) {
+    // Accounts that predate approval keep their access; new hospital-staff
+    // signups are inserted unapproved (see routes/auth.js).
+    db.run('ALTER TABLE users ADD COLUMN approved INTEGER DEFAULT 1');
   }
 
   const alertHospitalColumns = all('PRAGMA table_info(alert_hospitals)');

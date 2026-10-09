@@ -7,6 +7,16 @@ const path = require('path');
 let isInitialized = false;
 let transporter = null;
 
+// Patient-supplied text is interpolated into HTML email, so escape it
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // Initialize Firebase Admin SDK
 function initializeFirebase() {
     if (isInitialized) return true;
@@ -161,52 +171,53 @@ async function subscribeToTopic(fcmToken, topic) {
     }
 }
 
-// Send emergency alert to multiple hospitals
+// Send emergency alert to multiple hospitals.
+// Hospitals are notified in parallel: in an emergency one slow mail server
+// must not hold up every other hospital's alert.
 async function sendEmergencyAlert(hospitals, alertData) {
-    const results = [];
+    return Promise.all(hospitals.map((hospital) => notifyHospital(hospital, alertData)));
+}
 
-    for (const hospital of hospitals) {
-        const title = '🚨 CARDIAC EMERGENCY ALERT';
-        const body = `Patient needs help! Location: ${alertData.userLatitude.toFixed(4)}, ${alertData.userLongitude.toFixed(4)}. Distance: ${hospital.distance_km?.toFixed(2) || 'N/A'} km`;
+async function notifyHospital(hospital, alertData) {
+    const title = '🚨 CARDIAC EMERGENCY ALERT';
+    const body = `Patient needs help! Location: ${alertData.userLatitude.toFixed(4)}, ${alertData.userLongitude.toFixed(4)}. Distance: ${hospital.distance_km?.toFixed(2) || 'N/A'} km`;
 
-        const data = {
-            alertId: alertData.id,
-            type: 'emergency_cardiac',
-            symptoms: alertData.symptoms || '',
-            userLatitude: String(alertData.userLatitude),
-            userLongitude: String(alertData.userLongitude),
-            timestamp: new Date().toISOString()
-        };
+    const data = {
+        alertId: alertData.id,
+        type: 'emergency_cardiac',
+        symptoms: alertData.symptoms || '',
+        userLatitude: String(alertData.userLatitude),
+        userLongitude: String(alertData.userLongitude),
+        timestamp: new Date().toISOString()
+    };
 
-        // Try to send via FCM topic for this hospital
-        const result = await sendToTopic(`hospital_${hospital.id}`, title, body, data);
+    // Push (FCM topic) and email go out together
+    const [result, emailResult] = await Promise.all([
+        sendToTopic(`hospital_${hospital.id}`, title, body, data),
+        hospital.emergency_email
+            ? sendEmergencyEmail(hospital, alertData)
+            : Promise.resolve({ sent: false, mock: false })
+    ]);
 
-        // Also send an email alert to the hospital emergency inbox
-        let emailResult = { sent: false, mock: false };
-        if (hospital.emergency_email) {
-            emailResult = await sendEmergencyEmail(hospital, alertData);
+    return {
+        hospitalId: hospital.id,
+        hospitalName: hospital.name,
+        ...result,
+        email: {
+            sent: emailResult.success === true,
+            mock: emailResult.mock || false,
+            to: hospital.emergency_email || '',
+            ...(emailResult.error ? { error: emailResult.error } : {})
         }
-
-        results.push({
-            hospitalId: hospital.id,
-            hospitalName: hospital.name,
-            ...result,
-            email: {
-                sent: emailResult.success === true,
-                mock: emailResult.mock || false,
-                to: hospital.emergency_email || '',
-                ...(emailResult.error ? { error: emailResult.error } : {})
-            }
-        });
-    }
-
-    return results;
+    };
 }
 
 // Build and send the emergency alert email to a hospital
 async function sendEmergencyEmail(hospital, alertData) {
     const googleMapsUrl = `https://www.google.com/maps?q=${alertData.userLatitude},${alertData.userLongitude}`;
-    const subject = `🚨 CARDIAC EMERGENCY ALERT${alertData.userName ? ` - ${alertData.userName}` : ''}`;
+    // Header injection guard: user-supplied names must not carry line breaks
+    const safeName = alertData.userName ? String(alertData.userName).replace(/[\r\n]+/g, ' ') : '';
+    const subject = `🚨 CARDIAC EMERGENCY ALERT${safeName ? ` - ${safeName}` : ''}`;
 
     const html = `
     <div style="font-family: Arial, Helvetica, sans-serif; max-width: 640px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
@@ -214,12 +225,12 @@ async function sendEmergencyEmail(hospital, alertData) {
         <h1 style="margin: 0; font-size: 20px;">🚨 CARDIAC EMERGENCY ALERT</h1>
       </div>
       <div style="padding: 24px;">
-        <p>Hi <strong>${hospital.name}</strong>,</p>
+        <p>Hi <strong>${escapeHtml(hospital.name)}</strong>,</p>
         <p>A cardiac emergency has been reported near you. The following details have been shared by the patient:</p>
         <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
-          ${alertData.userName ? `<tr><td style="padding: 8px; border: 1px solid #e0e0e0; background:#fafafa;"><strong>Patient</strong></td><td style="padding: 8px; border: 1px solid #e0e0e0;">${alertData.userName}</td></tr>` : ''}
-          ${alertData.symptoms ? `<tr><td style="padding: 8px; border: 1px solid #e0e0e0; background:#fafafa;"><strong>Symptoms</strong></td><td style="padding: 8px; border: 1px solid #e0e0e0;">${alertData.symptoms}</td></tr>` : ''}
-          ${alertData.message ? `<tr><td style="padding: 8px; border: 1px solid #e0e0e0; background:#fafafa;"><strong>Message</strong></td><td style="padding: 8px; border: 1px solid #e0e0e0;">${alertData.message}</td></tr>` : ''}
+          ${alertData.userName ? `<tr><td style="padding: 8px; border: 1px solid #e0e0e0; background:#fafafa;"><strong>Patient</strong></td><td style="padding: 8px; border: 1px solid #e0e0e0;">${escapeHtml(alertData.userName)}</td></tr>` : ''}
+          ${alertData.symptoms ? `<tr><td style="padding: 8px; border: 1px solid #e0e0e0; background:#fafafa;"><strong>Symptoms</strong></td><td style="padding: 8px; border: 1px solid #e0e0e0;">${escapeHtml(alertData.symptoms)}</td></tr>` : ''}
+          ${alertData.message ? `<tr><td style="padding: 8px; border: 1px solid #e0e0e0; background:#fafafa;"><strong>Message</strong></td><td style="padding: 8px; border: 1px solid #e0e0e0;">${escapeHtml(alertData.message)}</td></tr>` : ''}
           <tr><td style="padding: 8px; border: 1px solid #e0e0e0; background:#fafafa;"><strong>Location</strong></td><td style="padding: 8px; border: 1px solid #e0e0e0;">${alertData.userLatitude.toFixed(6)}, ${alertData.userLongitude.toFixed(6)}</td></tr>
         </table>
         <p style="margin-bottom: 24px;">
@@ -266,6 +277,7 @@ async function sendResponseUpdate({ userId, alertId, hospital, acknowledged, eta
 }
 
 module.exports = {
+    escapeHtml,
     initializeFirebase,
     initializeTransporter,
     sendToDevice,

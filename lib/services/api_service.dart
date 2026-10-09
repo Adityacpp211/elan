@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
@@ -8,14 +9,26 @@ class ApiService {
   factory ApiService() => _instance;
   ApiService._internal();
 
-  // Base URL - change to your deployed server URL in production
-  static const String baseUrl =
-      'http://10.0.2.2:3000'; // Android emulator localhost
-  // static const String baseUrl = 'http://localhost:3000'; // iOS simulator / web
-  // static const String baseUrl = 'http://192.168.x.x:3000'; // For physical device
+  /// Backend address. Defaults to the Android emulator's view of the host
+  /// machine; override per build with
+  /// `--dart-define=API_BASE_URL=https://api.example.com`
+  /// (e.g. `http://localhost:3000` for iOS simulator / web, or the LAN IP of
+  /// your machine for a physical device).
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:3000',
+  );
+
+  /// How long any single request may take before it is treated as a network
+  /// failure. Without this an emergency request could hang indefinitely.
+  static const Duration requestTimeout = Duration(seconds: 15);
 
   String? _authToken;
   String? _userId;
+
+  /// Called once when an authenticated request comes back 401 (token expired
+  /// or revoked) so the app can sign the user out instead of failing silently.
+  void Function()? onUnauthorized;
 
   // Getters
   String? get authToken => _authToken;
@@ -45,6 +58,67 @@ class ApiService {
     return headers;
   }
 
+  dynamic _tryDecode(String body) {
+    try {
+      return jsonDecode(body);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Every endpoint goes through here: one place for timeouts, error
+  /// extraction (bodies may be non-JSON, e.g. a proxy's HTML error page) and
+  /// expired-session handling.
+  Future<ApiResponse> _request(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool auth = false,
+    int expectStatus = 200,
+    Duration timeout = requestTimeout,
+    required String fallbackError,
+  }) async {
+    var uri = Uri.parse('$baseUrl$path');
+    if (query != null) uri = uri.replace(queryParameters: query);
+
+    final headers = _headers(auth: auth);
+    final encoded = body == null ? null : jsonEncode(body);
+
+    final http.Response response;
+    try {
+      final Future<http.Response> call = switch (method) {
+        'GET' => http.get(uri, headers: headers),
+        'POST' => http.post(uri, headers: headers, body: encoded),
+        'PUT' => http.put(uri, headers: headers, body: encoded),
+        'DELETE' => http.delete(uri, headers: headers),
+        _ => throw ArgumentError('Unsupported method $method'),
+      };
+      response = await call.timeout(timeout);
+    } on TimeoutException {
+      return ApiResponse.networkError('the server did not respond in time');
+    } catch (e) {
+      return ApiResponse.networkError('could not reach the server');
+    }
+
+    final data = _tryDecode(response.body);
+
+    if (response.statusCode == expectStatus) {
+      return ApiResponse.success(data);
+    }
+
+    if (response.statusCode == 401 && auth && _authToken != null) {
+      clearAuth();
+      onUnauthorized?.call();
+      return ApiResponse.error('Your session has expired. Please sign in again.');
+    }
+
+    final message = data is Map && data['error'] is String
+        ? data['error'] as String
+        : fallbackError;
+    return ApiResponse.error(message, data: data);
+  }
+
   // ==================== SERVER / PROFILE ====================
 
   /// Check whether the backend is reachable
@@ -60,51 +134,18 @@ class ApiService {
   }
 
   /// Get current user profile from the server
-  Future<ApiResponse> getProfile() async {
-    try {
-      final response = await http.get(Uri.parse('$baseUrl/api/auth/me'),
-          headers: _headers(auth: true));
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data?['error'] ?? 'Failed to fetch profile');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getProfile() => _request('GET', '/api/auth/me',
+      auth: true, fallbackError: 'Failed to fetch profile');
 
   /// Update current user profile (name / phone)
-  Future<ApiResponse> updateProfile({
-    String? name,
-    String? phone,
-  }) async {
-    try {
-      final response = await http.put(
-        Uri.parse('$baseUrl/api/auth/me'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          if (name != null) 'name': name,
-          if (phone != null) 'phone': phone,
-        }),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data?['error'] ?? 'Failed to update profile');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
-
-  dynamic _tryDecode(String body) {
-    try {
-      return jsonDecode(body);
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<ApiResponse> updateProfile({String? name, String? phone}) =>
+      _request('PUT', '/api/auth/me',
+          auth: true,
+          body: {
+            if (name != null) 'name': name,
+            if (phone != null) 'phone': phone,
+          },
+          fallbackError: 'Failed to update profile');
 
   // ==================== AUTH ENDPOINTS ====================
 
@@ -116,32 +157,19 @@ class ApiService {
     String role = 'member',
     String? hospitalId,
   }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/register'),
-        headers: _headers(),
-        body: jsonEncode({
+    final response = await _request('POST', '/api/auth/register',
+        body: {
           'name': name,
           'email': email,
           'password': password,
           'role': role,
           if (hospitalId != null && hospitalId.isNotEmpty)
             'hospitalId': hospitalId,
-        }),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 201) {
-        _authToken = data['token'];
-        _userId = data['user']['id'];
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data?['error'] ?? 'Registration failed');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
+        },
+        expectStatus: 201,
+        fallbackError: 'Registration failed');
+    _captureSession(response);
+    return response;
   }
 
   /// Login user
@@ -150,28 +178,24 @@ class ApiService {
     required String password,
     String? fcmToken,
   }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/login'),
-        headers: _headers(),
-        body: jsonEncode({
+    final response = await _request('POST', '/api/auth/login',
+        body: {
           'email': email,
           'password': password,
           if (fcmToken != null) 'fcmToken': fcmToken,
-        }),
-      );
+        },
+        fallbackError: 'Login failed');
+    _captureSession(response);
+    return response;
+  }
 
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        _authToken = data['token'];
-        _userId = data['user']['id'];
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Login failed');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
+  void _captureSession(ApiResponse response) {
+    final data = response.data;
+    if (!response.success || data is! Map) return;
+    final token = data['token'];
+    final user = data['user'];
+    if (token is String && user is Map && user['id'] is String) {
+      setAuthToken(token, user['id'] as String);
     }
   }
 
@@ -179,69 +203,24 @@ class ApiService {
   Future<ApiResponse> updateLocation({
     required double latitude,
     required double longitude,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/location'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          'latitude': latitude,
-          'longitude': longitude,
-        }),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Failed to update location');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('POST', '/api/auth/location',
+          auth: true,
+          body: {'latitude': latitude, 'longitude': longitude},
+          fallbackError: 'Failed to update location');
 
   /// Update FCM token
-  Future<ApiResponse> updateFcmToken(String fcmToken) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/fcm-token'),
-        headers: _headers(auth: true),
-        body: jsonEncode({'fcmToken': fcmToken}),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Failed to update FCM token');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> updateFcmToken(String fcmToken) =>
+      _request('POST', '/api/auth/fcm-token',
+          auth: true,
+          body: {'fcmToken': fcmToken},
+          fallbackError: 'Failed to update FCM token');
 
   // ==================== HOSPITAL ENDPOINTS ====================
 
   /// Get every verified hospital (used to pick a facility when signing up as staff)
-  Future<ApiResponse> getHospitals() async {
-    try {
-      final response = await http.get(Uri.parse('$baseUrl/api/hospitals'),
-          headers: _headers());
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data?['error'] ?? 'Failed to fetch hospitals');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getHospitals() => _request('GET', '/api/hospitals',
+      fallbackError: 'Failed to fetch hospitals');
 
   /// Get nearby hospitals
   Future<ApiResponse> getNearbyHospitals({
@@ -249,30 +228,15 @@ class ApiService {
     required double longitude,
     double radiusKm = 10,
     int limit = 10,
-  }) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/hospitals/nearby').replace(
-        queryParameters: {
-          'lat': latitude.toString(),
-          'lng': longitude.toString(),
-          'radius': radiusKm.toString(),
-          'limit': limit.toString(),
-        },
-      );
-
-      final response = await http.get(uri, headers: _headers());
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Failed to fetch hospitals');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('GET', '/api/hospitals/nearby',
+          query: {
+            'lat': latitude.toString(),
+            'lng': longitude.toString(),
+            'radius': radiusKm.toString(),
+            'limit': limit.toString(),
+          },
+          fallbackError: 'Failed to fetch hospitals');
 
   // ==================== PAYMENT ENDPOINTS ====================
 
@@ -283,31 +247,17 @@ class ApiService {
     required double longitude,
     String? symptoms,
     String? message,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/payments/create-order'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          'tier': tier,
-          'latitude': latitude,
-          'longitude': longitude,
-          if (symptoms != null) 'symptoms': symptoms,
-          if (message != null) 'message': message,
-        }),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Failed to create order');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('POST', '/api/payments/create-order',
+          auth: true,
+          body: {
+            'tier': tier,
+            'latitude': latitude,
+            'longitude': longitude,
+            if (symptoms != null) 'symptoms': symptoms,
+            if (message != null) 'message': message,
+          },
+          fallbackError: 'Failed to create order');
 
   /// Verify payment after Razorpay callback
   Future<ApiResponse> verifyPayment({
@@ -315,222 +265,83 @@ class ApiService {
     required String paymentId,
     required String signature,
     required String alertId,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/payments/verify'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          'orderId': orderId,
-          'paymentId': paymentId,
-          'signature': signature,
-          'alertId': alertId,
-        }),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Payment verification failed');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('POST', '/api/payments/verify',
+          auth: true,
+          body: {
+            'orderId': orderId,
+            'paymentId': paymentId,
+            'signature': signature,
+            'alertId': alertId,
+          },
+          fallbackError: 'Payment verification failed');
 
   // ==================== ALERT ENDPOINTS ====================
 
   /// Send emergency alert (after payment is verified)
-  Future<ApiResponse> sendEmergencyAlert(String alertId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/alerts/send'),
-        headers: _headers(auth: true),
-        body: jsonEncode({'alertId': alertId}),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Failed to send alert');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> sendEmergencyAlert(String alertId) =>
+      _request('POST', '/api/alerts/send',
+          auth: true,
+          body: {'alertId': alertId},
+          // Dispatch fans out push + email to every hospital; give it room
+          timeout: const Duration(seconds: 45),
+          fallbackError: 'Failed to send alert');
 
   /// Get alert history
-  Future<ApiResponse> getAlertHistory() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/alerts/history'),
-        headers: _headers(auth: true),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Failed to fetch alerts');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getAlertHistory() => _request('GET', '/api/alerts/history',
+      auth: true, fallbackError: 'Failed to fetch alerts');
 
   /// Get single alert details
-  Future<ApiResponse> getAlertDetails(String alertId) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/alerts/$alertId'),
-        headers: _headers(auth: true),
-      );
-
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data['error'] ?? 'Failed to fetch alert');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getAlertDetails(String alertId) =>
+      _request('GET', '/api/alerts/${Uri.encodeComponent(alertId)}',
+          auth: true, fallbackError: 'Failed to fetch alert');
 
   // ==================== HOSPITAL RECEIVER ENDPOINTS ====================
 
   /// Alerts addressed to the signed-in hospital
-  Future<ApiResponse> getReceiverInbox({String? status, int limit = 50}) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/receiver/inbox').replace(
-        queryParameters: {
-          if (status != null && status != 'all') 'status': status,
-          'limit': '$limit',
-        },
-      );
-
-      final response = await http.get(uri, headers: _headers(auth: true));
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(
-          data?['error'] ?? 'Failed to fetch receiver inbox');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getReceiverInbox({String? status, int limit = 50}) =>
+      _request('GET', '/api/receiver/inbox',
+          auth: true,
+          query: {
+            if (status != null && status != 'all') 'status': status,
+            'limit': '$limit',
+          },
+          fallbackError: 'Failed to fetch receiver inbox');
 
   /// Get a single alert as the hospital sees it
-  Future<ApiResponse> getReceiverAlert(String alertId) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/receiver/inbox/$alertId'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data?['error'] ?? 'Failed to fetch alert');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getReceiverAlert(String alertId) =>
+      _request('GET', '/api/receiver/inbox/${Uri.encodeComponent(alertId)}',
+          auth: true, fallbackError: 'Failed to fetch alert');
 
   /// Take the alert: the patient sees the hospital as acknowledged
   Future<ApiResponse> acknowledgeReceiverAlert(
     String alertId, {
     int? etaMinutes,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/receiver/alerts/$alertId/acknowledge'),
-        headers: _headers(auth: true),
-        body: jsonEncode({if (etaMinutes != null) 'etaMinutes': etaMinutes}),
-      );
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data?['error'] ?? 'Failed to acknowledge alert');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('POST',
+          '/api/receiver/alerts/${Uri.encodeComponent(alertId)}/acknowledge',
+          auth: true,
+          body: {if (etaMinutes != null) 'etaMinutes': etaMinutes},
+          fallbackError: 'Failed to acknowledge alert');
 
   /// Pass the alert on to the other notified hospitals
-  Future<ApiResponse> declineReceiverAlert(String alertId,
-      {String? reason}) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/receiver/alerts/$alertId/decline'),
-        headers: _headers(auth: true),
-        body: jsonEncode(
-            {if (reason != null && reason.isNotEmpty) 'reason': reason}),
-      );
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(data?['error'] ?? 'Failed to decline alert');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> declineReceiverAlert(String alertId, {String? reason}) =>
+      _request('POST',
+          '/api/receiver/alerts/${Uri.encodeComponent(alertId)}/decline',
+          auth: true,
+          body: {if (reason != null && reason.isNotEmpty) 'reason': reason},
+          fallbackError: 'Failed to decline alert');
 
   /// The facility the signed-in staff member works for
-  Future<ApiResponse> getReceiverProfile() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/receiver/profile'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-
-      return ApiResponse.error(
-          data?['error'] ?? 'Failed to fetch receiver profile');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getReceiverProfile() =>
+      _request('GET', '/api/receiver/profile',
+          auth: true, fallbackError: 'Failed to fetch receiver profile');
 
   // ==================== RECORDS (PATIENTS / VITALS / REPORTS) ====================
 
   /// List patients for the logged-in user
-  Future<ApiResponse> getPatients() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/records/patients'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to fetch patients');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getPatients() => _request('GET', '/api/records/patients',
+      auth: true, fallbackError: 'Failed to fetch patients');
 
   /// Create a patient record
   Future<ApiResponse> createPatient({
@@ -540,29 +351,19 @@ class ApiService {
     required String condition,
     required String admissionDate,
     required String roomNumber,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/records/patients'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          'name': name,
-          'age': age,
-          'bloodType': bloodType,
-          'condition': condition,
-          'admissionDate': admissionDate,
-          'roomNumber': roomNumber,
-        }),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 201) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to create patient');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('POST', '/api/records/patients',
+          auth: true,
+          body: {
+            'name': name,
+            'age': age,
+            'bloodType': bloodType,
+            'condition': condition,
+            'admissionDate': admissionDate,
+            'roomNumber': roomNumber,
+          },
+          expectStatus: 201,
+          fallbackError: 'Failed to create patient');
 
   /// Update a patient record
   Future<ApiResponse> updatePatient(
@@ -573,63 +374,27 @@ class ApiService {
     required String condition,
     required String admissionDate,
     required String roomNumber,
-  }) async {
-    try {
-      final response = await http.put(
-        Uri.parse('$baseUrl/api/records/patients/$id'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          'name': name,
-          'age': age,
-          'bloodType': bloodType,
-          'condition': condition,
-          'admissionDate': admissionDate,
-          'roomNumber': roomNumber,
-        }),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to update patient');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('PUT', '/api/records/patients/${Uri.encodeComponent(id)}',
+          auth: true,
+          body: {
+            'name': name,
+            'age': age,
+            'bloodType': bloodType,
+            'condition': condition,
+            'admissionDate': admissionDate,
+            'roomNumber': roomNumber,
+          },
+          fallbackError: 'Failed to update patient');
 
   /// Delete a patient record
-  Future<ApiResponse> deletePatient(String id) async {
-    try {
-      final response = await http.delete(
-        Uri.parse('$baseUrl/api/records/patients/$id'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to delete patient');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> deletePatient(String id) => _request(
+      'DELETE', '/api/records/patients/${Uri.encodeComponent(id)}',
+      auth: true, fallbackError: 'Failed to delete patient');
 
   /// List vital readings for the logged-in user
-  Future<ApiResponse> getVitals() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/records/vitals'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to fetch vitals');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getVitals() => _request('GET', '/api/records/vitals',
+      auth: true, fallbackError: 'Failed to fetch vitals');
 
   /// Add a vital reading
   Future<ApiResponse> createVital({
@@ -640,64 +405,29 @@ class ApiService {
     required double temperature,
     required int oxygenLevel,
     String? timestamp,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/records/vitals'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          'patientId': patientId,
-          'patientName': patientName,
-          'heartRate': heartRate,
-          'bloodPressure': bloodPressure,
-          'temperature': temperature,
-          'oxygenLevel': oxygenLevel,
-          if (timestamp != null) 'timestamp': timestamp,
-        }),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 201) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to add vital reading');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('POST', '/api/records/vitals',
+          auth: true,
+          body: {
+            'patientId': patientId,
+            'patientName': patientName,
+            'heartRate': heartRate,
+            'bloodPressure': bloodPressure,
+            'temperature': temperature,
+            'oxygenLevel': oxygenLevel,
+            if (timestamp != null) 'timestamp': timestamp,
+          },
+          expectStatus: 201,
+          fallbackError: 'Failed to add vital reading');
 
   /// Delete a vital reading
-  Future<ApiResponse> deleteVital(String id) async {
-    try {
-      final response = await http.delete(
-        Uri.parse('$baseUrl/api/records/vitals/$id'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to delete vital');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> deleteVital(String id) => _request(
+      'DELETE', '/api/records/vitals/${Uri.encodeComponent(id)}',
+      auth: true, fallbackError: 'Failed to delete vital');
 
   /// List medical reports for the logged-in user
-  Future<ApiResponse> getReports() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/records/reports'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to fetch reports');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> getReports() => _request('GET', '/api/records/reports',
+      auth: true, fallbackError: 'Failed to fetch reports');
 
   /// Create a medical report
   Future<ApiResponse> createReport({
@@ -706,45 +436,23 @@ class ApiService {
     required String date,
     required String summary,
     required String doctor,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/records/reports'),
-        headers: _headers(auth: true),
-        body: jsonEncode({
-          'patientName': patientName,
-          'reportType': reportType,
-          'date': date,
-          'summary': summary,
-          'doctor': doctor,
-        }),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 201) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to create report');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  }) =>
+      _request('POST', '/api/records/reports',
+          auth: true,
+          body: {
+            'patientName': patientName,
+            'reportType': reportType,
+            'date': date,
+            'summary': summary,
+            'doctor': doctor,
+          },
+          expectStatus: 201,
+          fallbackError: 'Failed to create report');
 
   /// Delete a medical report
-  Future<ApiResponse> deleteReport(String id) async {
-    try {
-      final response = await http.delete(
-        Uri.parse('$baseUrl/api/records/reports/$id'),
-        headers: _headers(auth: true),
-      );
-      final data = _tryDecode(response.body);
-      if (response.statusCode == 200) {
-        return ApiResponse.success(data);
-      }
-      return ApiResponse.error(data['error'] ?? 'Failed to delete report');
-    } catch (e) {
-      return ApiResponse.error('Network error: $e');
-    }
-  }
+  Future<ApiResponse> deleteReport(String id) => _request(
+      'DELETE', '/api/records/reports/${Uri.encodeComponent(id)}',
+      auth: true, fallbackError: 'Failed to delete report');
 }
 
 /// API Response wrapper
@@ -753,17 +461,30 @@ class ApiResponse {
   final dynamic data;
   final String? error;
 
+  /// True when the server could not be reached at all (as opposed to the
+  /// server answering with an error).
+  final bool isNetworkError;
+
   ApiResponse._({
     required this.success,
     this.data,
     this.error,
+    this.isNetworkError = false,
   });
 
   factory ApiResponse.success(dynamic data) {
     return ApiResponse._(success: true, data: data);
   }
 
-  factory ApiResponse.error(String error) {
-    return ApiResponse._(success: false, error: error);
+  factory ApiResponse.error(String error, {dynamic data}) {
+    return ApiResponse._(success: false, error: error, data: data);
+  }
+
+  factory ApiResponse.networkError(String detail) {
+    return ApiResponse._(
+      success: false,
+      error: 'Network error: $detail',
+      isNetworkError: true,
+    );
   }
 }

@@ -113,7 +113,8 @@ void main() {
     expect(find.text('Ravi Kumar'), findsOneWidget);
     expect(find.text('Chest pain'), findsOneWidget);
     expect(find.text('Breathlessness'), findsOneWidget);
-    expect(find.text('0.4 km'), findsOneWidget);
+    // Sub-kilometre distances read in metres (0.42 km)
+    expect(find.text('420 m'), findsOneWidget);
 
     // Counters reflect the cached inbox: one new, nothing accepted or passed.
     expect(find.text('AWAITING'), findsOneWidget);

@@ -17,7 +17,8 @@ router.get('/nearby', optionalAuth, (req, res) => {
         const latitude = parseFloat(lat);
         const longitude = parseFloat(lng);
         const radiusKm = parseFloat(radius);
-        const maxLimit = Math.min(parseInt(limit), 50);
+        const parsedLimit = parseInt(limit);
+        const maxLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 50) : 10;
 
         if (!isFinite(latitude) || !isFinite(longitude) || !isValidCoordinates(latitude, longitude)) {
             return res.status(400).json({ error: 'Invalid coordinates' });
@@ -136,7 +137,10 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
 
         const { name, address, phone, emergencyEmail, latitude, longitude, isActive } = req.body;
 
-        if (latitude !== undefined && longitude !== undefined && !isValidCoordinates(latitude, longitude)) {
+        // Validate the merged result so a partial update can't leave bad coordinates
+        const nextLatitude = latitude !== undefined ? latitude : existing.latitude;
+        const nextLongitude = longitude !== undefined ? longitude : existing.longitude;
+        if (!isValidCoordinates(nextLatitude, nextLongitude)) {
             return res.status(400).json({ error: 'Valid latitude and longitude are required' });
         }
 
@@ -145,8 +149,8 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
             address: address ?? existing.address,
             phone: phone ?? existing.phone,
             emergencyEmail: emergencyEmail !== undefined ? emergencyEmail : existing.emergency_email,
-            latitude: latitude !== undefined ? latitude : existing.latitude,
-            longitude: longitude !== undefined ? longitude : existing.longitude,
+            latitude: nextLatitude,
+            longitude: nextLongitude,
             isActive: isActive !== undefined ? (isActive ? 1 : 0) : existing.is_active
         });
 

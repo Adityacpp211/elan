@@ -78,14 +78,22 @@ class ReceiverService {
   }
 
   /// Pull the inbox from the backend. Returns the cache untouched on failure.
-  Future<({ReceiverInbox? inbox, String? error})> refreshInbox() async {
-    if (_syncing) return (inbox: null, error: null);
+  /// `pendingApproval` is true when the server says this staff account has
+  /// not been approved yet — a different situation from being offline.
+  Future<({ReceiverInbox? inbox, String? error, bool pendingApproval})>
+      refreshInbox() async {
+    if (_syncing) return (inbox: null, error: null, pendingApproval: false);
 
     _syncing = true;
     try {
       final response = await _api.getReceiverInbox();
       if (!response.success) {
-        return (inbox: null, error: response.error);
+        final data = response.data;
+        return (
+          inbox: null,
+          error: response.error,
+          pendingApproval: data is Map && data['code'] == 'pending_approval',
+        );
       }
 
       final data = (response.data as Map?)?.cast<String, dynamic>() ?? {};
@@ -106,7 +114,7 @@ class ReceiverService {
 
       _memoryCache = inbox;
       await _persist(inbox);
-      return (inbox: inbox, error: null);
+      return (inbox: inbox, error: null, pendingApproval: false);
     } finally {
       _syncing = false;
     }

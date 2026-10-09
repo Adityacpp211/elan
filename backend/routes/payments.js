@@ -5,6 +5,7 @@ const Hospital = require('../models/Hospital');
 const paymentService = require('../services/paymentService');
 const { isValidCoordinates } = require('../utils/validation');
 const { authMiddleware } = require('../middleware/auth');
+const config = require('../config/config');
 
 const router = express.Router();
 
@@ -13,7 +14,8 @@ router.post('/create-order', authMiddleware, async (req, res) => {
     try {
         const { tier, latitude, longitude, symptoms, message } = req.body;
 
-        if (!tier || !latitude || !longitude) {
+        // Explicit null checks: 0 is a valid latitude/longitude
+        if (tier == null || latitude == null || longitude == null) {
             return res.status(400).json({
                 error: 'Tier, latitude, and longitude are required'
             });
@@ -34,6 +36,15 @@ router.post('/create-order', authMiddleware, async (req, res) => {
         // Get price for tier
         const amountPaise = paymentService.getPriceForTier(chargeTier);
         const hospitalCount = paymentService.getHospitalCountForTier(chargeTier);
+
+        // Find hospitals that will be notified. Check before taking payment so
+        // nobody is charged for an alert that cannot reach anyone.
+        const hospitals = Hospital.findNearby(lat, lng, config.alertRadiusKm, hospitalCount);
+        if (hospitals.length === 0) {
+            return res.status(404).json({
+                error: `No hospitals found within ${config.alertRadiusKm} km. Call emergency services (112) directly.`
+            });
+        }
 
         // Create alert record (pending payment)
         const alert = Alert.create({
@@ -58,14 +69,6 @@ router.post('/create-order', authMiddleware, async (req, res) => {
             amountPaise
         });
 
-        // Find hospitals that will be notified
-        const hospitals = Hospital.findNearby(
-            lat,
-            lng,
-            15, // 15km radius
-            hospitalCount
-        );
-
         res.json({
             success: true,
             alertId: alert.id,
@@ -84,7 +87,8 @@ router.post('/create-order', authMiddleware, async (req, res) => {
                     distanceKm: Math.round(h.distance_km * 100) / 100
                 }))
             },
-            razorpayKeyId: paymentService.config.keyId || 'test_key'
+            razorpayKeyId: paymentService.config.keyId || 'test_key',
+            mockGateway: paymentService.isMockMode()
         });
     } catch (error) {
         console.error('Create order error:', error);
@@ -121,6 +125,17 @@ router.post('/verify', authMiddleware, async (req, res) => {
         }
         if (alert.user_id !== req.user.userId) {
             return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        // Already settled: report success without re-processing
+        if (payment.status === 'completed') {
+            return res.json({
+                success: true,
+                message: 'Payment already verified',
+                alertId,
+                paymentId: payment.razorpay_payment_id,
+                nextStep: '/api/alerts/send'
+            });
         }
 
         // Verify signature

@@ -6,8 +6,8 @@ class User {
         const id = uuidv4();
         const now = new Date().toISOString();
         run(
-            `INSERT INTO users (id, name, email, password_hash, role, hospital_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO users (id, name, email, password_hash, role, hospital_id, approved, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 id,
                 name,
@@ -15,6 +15,7 @@ class User {
                 passwordHash,
                 options.role || 'member',
                 options.hospitalId || null,
+                options.approved === false ? 0 : 1,
                 now
             ]
         );
@@ -31,6 +32,17 @@ class User {
 
     static findByHospitalId(hospitalId) {
         return all('SELECT * FROM users WHERE hospital_id = ?', [hospitalId]);
+    }
+
+    static findPendingStaff() {
+        return all(
+            `SELECT * FROM users WHERE role = 'hospital' AND approved = 0 ORDER BY created_at ASC`
+        );
+    }
+
+    static setApproved(id, approved) {
+        run('UPDATE users SET approved = ? WHERE id = ?', [approved ? 1 : 0, id]);
+        return this.findById(id);
     }
 
     static updateLocation(id, latitude, longitude) {
