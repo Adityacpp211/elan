@@ -1,17 +1,23 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:elan/main.dart';
 import 'package:elan/screens.dart';
+import 'package:elan/theme.dart';
 
 void main() {
   testWidgets('Élan splash screen renders', (WidgetTester tester) async {
     await tester.pumpWidget(const ElanApp());
 
-    // Splash content
+    // Splash content: the logo mark, wordmark and tagline
+    expect(find.byType(BrandMark), findsOneWidget);
     expect(find.text('Élan'), findsOneWidget);
     expect(find.text('Emergency cardiac care'), findsOneWidget);
-    expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);
+
+    // On the first frame the mark sits at the screen centre, exactly where
+    // the native launch screen draws it, so the hand-off doesn't jump.
+    final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+    expect(tester.getCenter(find.byType(BrandMark)),
+        Offset(screen.width / 2, screen.height / 2));
 
     // Let the splash timer finish so the test ends cleanly
     await tester.pump(const Duration(seconds: 4));

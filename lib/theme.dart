@@ -1,8 +1,9 @@
 // Élan Design System
 //
-// A calm, clinical look: warm paper canvas, ink text, flat white cards with
-// hairline borders, and a single signal red reserved for emergency actions.
-// No glows, gradients or decorative shadows. One typeface (Manrope).
+// A calm, clinical look built on the Élan logo: cool near-white canvas, the
+// logo's navy for text, its blue for interactive elements, and a single
+// signal red reserved for emergencies. Flat white cards with hairline
+// borders; no glows or decorative gradients. One typeface (Manrope).
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -14,24 +15,34 @@ import 'services/connection_status.dart';
 // ==================== COLOR TOKENS ====================
 
 abstract final class AppColors {
-  // Canvas
-  static const ink = Color(0xFFF4F2ED); // page background (warm paper)
+  // Canvas (cool, like the logo's card)
+  static const ink = Color(0xFFF4F8FB); // page background
   static const surface = Color(0xFFFFFFFF); // cards
-  static const surfaceRaised = Color(0xFFF0EDE7); // inset areas
-  static const hairline = Color(0xFFDDD8CF);
+  static const surfaceRaised = Color(0xFFEAF1F6); // inset areas
+  static const hairline = Color(0xFFD6E1EA);
 
-  // Text (all at least 4.5:1 on surface and canvas)
-  static const textPrimary = Color(0xFF16181D);
-  static const textSecondary = Color(0xFF474C57);
-  static const textMuted = Color(0xFF6B707A);
+  // Text: the logo's navy (all at least 4.5:1 on surface and canvas)
+  static const textPrimary = Color(0xFF0B2E47);
+  static const textSecondary = Color(0xFF3D5468);
+  static const textMuted = Color(0xFF5E7285);
 
-  // Semantics: muted, print-like hues that stay legible as text on white
-  static const brand = Color(0xFFC8102E); // emergency / critical only
-  static const brandSoft = Color(0xFFFBE9EB);
-  static const alert = Color(0xFF1F4E8C); // hospitals, informational
-  static const success = Color(0xFF1C7A47);
+  // Brand: deepened from the logo's blue so white text on it passes contrast
+  static const primary = Color(0xFF0A6AAE);
+  static const primarySoft = Color(0xFFE5F1F9);
+
+  // Emergency red: SOS, critical states and destructive actions ONLY
+  static const emergency = Color(0xFFC8102E);
+  static const emergencySoft = Color(0xFFFBE9EB);
+
+  // Semantics (text-safe shades of the logo's blue / teal / green)
+  static const alert = Color(0xFF0A6AAE); // hospitals, informational
+  static const success = Color(0xFF127A5A);
   static const warning = Color(0xFF9A5B00);
-  static const sky = Color(0xFF256D8F);
+  static const sky = Color(0xFF1C7F95);
+
+  // Logo accents, for decoration only (not text-safe)
+  static const logoTeal = Color(0xFF20C1D3);
+  static const logoGreen = Color(0xFF5ECEA4);
 }
 
 abstract final class AppSpace {
@@ -110,13 +121,13 @@ class AppTheme {
   static ThemeData light() {
     const colorScheme = ColorScheme.light(
       brightness: Brightness.light,
-      primary: AppColors.brand,
+      primary: AppColors.primary,
       onPrimary: Colors.white,
       secondary: AppColors.alert,
       onSecondary: Colors.white,
       surface: AppColors.surface,
       onSurface: AppColors.textPrimary,
-      error: AppColors.brand,
+      error: AppColors.emergency,
       onError: Colors.white,
       surfaceContainerHighest: AppColors.surfaceRaised,
       outline: AppColors.hairline,
@@ -246,7 +257,7 @@ class AppTheme {
             fontSize: 14,
             color: AppColors.textMuted,
             fontWeight: FontWeight.w400,fontVariations: AppFonts.w400,),
-        errorStyle: const TextStyle(fontSize: 12, color: AppColors.brand),
+        errorStyle: const TextStyle(fontSize: 12, color: AppColors.emergency),
         prefixIconColor: AppColors.textMuted,
         suffixIconColor: AppColors.textMuted,
         border: OutlineInputBorder(
@@ -264,12 +275,12 @@ class AppTheme {
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          borderSide: const BorderSide(color: AppColors.brand),
+          borderSide: const BorderSide(color: AppColors.emergency),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.brand,
+          backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           minimumSize: const Size(0, 52),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -285,7 +296,7 @@ class AppTheme {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.brand,
+          backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           elevation: 0,
           shadowColor: Colors.transparent,
@@ -317,7 +328,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.brand,
+          foregroundColor: AppColors.primary,
           textStyle: const TextStyle(
               fontFamily: AppFonts.body,
               fontSize: 14,
@@ -403,29 +414,43 @@ class AppBackground extends StatelessWidget {
   }
 }
 
-/// The Élan brand mark: a flat signal-red tile.
+/// The Élan logo mark (the cross, figure and leaf), without the wordmark.
 class BrandMark extends StatelessWidget {
-  const BrandMark({super.key, this.size = 56, this.color});
+  const BrandMark({super.key, this.size = 56});
   final double size;
-  final Color? color;
+
+  static const asset = 'assets/brand/elan_mark.png';
 
   @override
   Widget build(BuildContext context) {
-    final accent = color ?? AppColors.brand;
-    return Container(
+    return Image.asset(
+      asset,
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: accent,
-        borderRadius: BorderRadius.circular(size * 0.22),
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(size * 0.2),
-        child: Icon(
-          Icons.favorite_rounded,
-          size: size * 0.55,
-          color: Colors.white,
-        ),
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.medium,
+      semanticLabel: 'Élan',
+    );
+  }
+}
+
+/// "Élan" set in the brand navy — the wordmark half of the logo.
+class BrandWordmark extends StatelessWidget {
+  const BrandWordmark({super.key, this.size = 22});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'Élan',
+      style: TextStyle(
+        fontFamily: AppFonts.display,
+        fontSize: size,
+        height: 1.0,
+        letterSpacing: -0.02 * size,
+        fontWeight: FontWeight.w800,
+        fontVariations: AppFonts.w800,
+        color: AppColors.textPrimary,
       ),
     );
   }
@@ -436,7 +461,7 @@ class IconTile extends StatelessWidget {
   const IconTile({
     super.key,
     required this.icon,
-    this.color = AppColors.brand,
+    this.color = AppColors.primary,
     this.size = 44,
     this.iconSize,
   });
@@ -669,7 +694,7 @@ class ServerStatusPill extends StatelessWidget {
               syncing ? 'Online · synced' : 'Server online',
               AppColors.success
             ),
-          ServerStatus.offline => ('Server offline', AppColors.brand),
+          ServerStatus.offline => ('Server offline', AppColors.emergency),
         };
 
         return GestureDetector(
@@ -744,7 +769,7 @@ class PrimaryButton extends StatelessWidget {
     required this.label,
     this.onPressed,
     this.icon,
-    this.color = AppColors.brand,
+    this.color = AppColors.primary,
     this.loading = false,
     this.suffix,
   });
@@ -806,7 +831,7 @@ class HoldToSendButton extends StatefulWidget {
     required this.label,
     required this.onConfirmed,
     this.caption,
-    this.color = AppColors.brand,
+    this.color = AppColors.emergency,
     this.loading = false,
     this.loadingLabel = 'Sending…',
     this.holdDuration = const Duration(milliseconds: 1500),
@@ -1007,21 +1032,21 @@ class ErrorBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.brandSoft,
+        color: AppColors.emergencySoft,
         borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: AppColors.brand.withValues(alpha: 0.3)),
+        border: Border.all(color: AppColors.emergency.withValues(alpha: 0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Icon(Icons.error_outline_rounded,
-              color: AppColors.brand, size: 18),
+              color: AppColors.emergency, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
               style: TextStyle(
-                  color: AppColors.brand,
+                  color: AppColors.emergency,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   fontVariations: AppFonts.w600,

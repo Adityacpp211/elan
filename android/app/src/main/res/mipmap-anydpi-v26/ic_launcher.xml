@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive launcher icon (Android 8+). Older devices use the PNG mipmaps. -->
+<!-- Adaptive launcher icon (Android 8+): the Élan mark on white. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/elan_red" />
+    <background android:drawable="@color/elan_icon_bg" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
     <monochrome android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>

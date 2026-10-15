@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Élan signal red (matches AppColors.brand) -->
-    <color name="elan_red">#C8102E</color>
+    <!-- Launch screen + launcher icon backdrop (white, like the logo card) -->
+    <color name="elan_splash_bg">#FFFFFF</color>
+    <color name="elan_icon_bg">#FFFFFF</color>
 </resources>

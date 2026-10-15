@@ -92,12 +92,9 @@ class _AuthShell extends StatelessWidget {
                   // Wordmark lockup; [eyebrow] is no longer shown.
                   Row(
                     children: [
-                      const BrandMark(size: 34),
+                      const BrandMark(size: 40),
                       const SizedBox(width: 10),
-                      Text(
-                        'Élan',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
+                      const BrandWordmark(size: 24),
                     ],
                   ),
                   const SizedBox(height: 36),
@@ -230,7 +227,7 @@ class _RoleToggle extends StatelessWidget {
           _RoleToggleTab(
             label: 'Member',
             icon: Icons.favorite_rounded,
-            color: AppColors.brand,
+            color: AppColors.primary,
             selected: role == 'member',
             onTap: () => onChanged('member'),
           ),
@@ -965,7 +962,7 @@ class _EmergencyHeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.brand,
+      color: AppColors.emergency,
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: InkWell(
         onTap: onTap,
@@ -1108,7 +1105,7 @@ class _StatsCard extends StatelessWidget {
           cell(StatValue(
             label: 'Alerts sent',
             value: '$alertsSent',
-            color: AppColors.brand,
+            color: AppColors.primary,
             icon: Icons.notifications_active_rounded,
           )),
         ],
@@ -1319,7 +1316,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.error_rounded, color: AppColors.brand, size: 44),
+        icon: const Icon(Icons.error_rounded, color: AppColors.emergency, size: 44),
         title: const Text('Alert NOT sent'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1705,7 +1702,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                       height: 6,
                                       decoration: BoxDecoration(
                                           color: _userLocation == null
-                                              ? AppColors.brand
+                                              ? AppColors.emergency
                                               : _locationIsLastKnown
                                                   ? AppColors.warning
                                                   : AppColors.success,
@@ -1723,7 +1720,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
-                                      ?.copyWith(color: AppColors.brand),
+                                      ?.copyWith(color: AppColors.emergency),
                                 )
                               else
                                 Text(
@@ -1871,12 +1868,12 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                               horizontal: 14, vertical: 9),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? AppColors.brand
+                                ? AppColors.emergency
                                 : AppColors.surfaceRaised,
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: isSelected
-                                  ? AppColors.brand
+                                  ? AppColors.emergency
                                   : AppColors.hairline,
                             ),
                           ),
@@ -1944,12 +1941,12 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? AppColors.brand.withValues(alpha: 0.1)
+                                  ? AppColors.emergency.withValues(alpha: 0.1)
                                   : AppColors.surface,
                               borderRadius: BorderRadius.circular(AppRadius.md),
                               border: Border.all(
                                 color: isSelected
-                                    ? AppColors.brand
+                                    ? AppColors.emergency
                                     : AppColors.hairline,
                                 width: isSelected ? 1.6 : 1,
                               ),
@@ -1995,7 +1992,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                       width: 18,
                                       height: 18,
                                       decoration: const BoxDecoration(
-                                        color: AppColors.brand,
+                                        color: AppColors.emergency,
                                         shape: BoxShape.circle,
                                       ),
                                       child: const Icon(Icons.check_rounded,
@@ -2319,10 +2316,10 @@ class _AlertCard extends StatelessWidget {
       );
     }
     if (dispatches.every((d) => !d.messageDelivered && !d.declined)) {
-      return ('Not delivered', AppColors.brand);
+      return ('Not delivered', AppColors.emergency);
     }
     if (dispatches.every((d) => d.declined)) {
-      return ('All declined — call 112', AppColors.brand);
+      return ('All declined — call 112', AppColors.emergency);
     }
     return ('Awaiting reply', AppColors.warning);
   }
@@ -2335,7 +2332,7 @@ class _AlertCard extends StatelessWidget {
       );
     }
     if (d.declined) return ('Declined', AppColors.textMuted);
-    if (!d.messageDelivered) return ('Not delivered', AppColors.brand);
+    if (!d.messageDelivered) return ('Not delivered', AppColors.emergency);
     return ('Awaiting reply', AppColors.warning);
   }
 
@@ -2402,13 +2399,13 @@ class _AlertCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: AppColors.brand.withValues(alpha: 0.12),
+                          color: AppColors.emergency.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           s,
                           style: const TextStyle(
-                            color: AppColors.brand,
+                            color: AppColors.emergency,
                             fontSize: 11.5,
                             fontWeight: FontWeight.w700,
                           fontVariations: AppFonts.w700,
@@ -2780,7 +2777,7 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
                           label: 'Awaiting',
                           value: '${_stats.pending}',
                           color: _stats.pending > 0
-                              ? AppColors.brand
+                              ? AppColors.emergency
                               : AppColors.textSecondary,
                           icon: Icons.notifications_active_rounded,
                         ),
@@ -2917,7 +2914,7 @@ class _FilterChips extends StatelessWidget {
       children: _labels.entries.map((entry) {
         final isSelected = entry.key == selected;
         final color = switch (entry.key) {
-          'pending' => AppColors.brand,
+          'pending' => AppColors.emergency,
           'acknowledged' => AppColors.success,
           'declined' => AppColors.textSecondary,
           _ => AppColors.alert,
@@ -2982,7 +2979,7 @@ class _ReceiverAlertCard extends StatelessWidget {
   (String, Color) get _statusStyle => switch (alert.status) {
         ReceiverAlertStatus.acknowledged => ('Accepted', AppColors.success),
         ReceiverAlertStatus.declined => ('Passed', AppColors.textSecondary),
-        ReceiverAlertStatus.pending => ('New', AppColors.brand),
+        ReceiverAlertStatus.pending => ('New', AppColors.emergency),
       };
 
   @override
@@ -2994,7 +2991,7 @@ class _ReceiverAlertCard extends StatelessWidget {
     // Left strip: how much attention this card needs right now
     final stripColor = switch (alert.status) {
       ReceiverAlertStatus.pending =>
-        urgent ? AppColors.brand : AppColors.warning,
+        urgent ? AppColors.emergency : AppColors.warning,
       ReceiverAlertStatus.acknowledged => AppColors.success,
       ReceiverAlertStatus.declined => AppColors.hairline,
     };
@@ -3294,7 +3291,7 @@ class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
     final (statusLabel, statusColor) = switch (_alert.status) {
       ReceiverAlertStatus.acknowledged => ('Accepted', AppColors.success),
       ReceiverAlertStatus.declined => ('Passed', AppColors.textSecondary),
-      ReceiverAlertStatus.pending => ('Awaiting response', AppColors.brand),
+      ReceiverAlertStatus.pending => ('Awaiting response', AppColors.emergency),
     };
 
     return AppBackground(
@@ -3333,7 +3330,7 @@ class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 10, vertical: 5),
                                       decoration: BoxDecoration(
-                                        color: AppColors.brand
+                                        color: AppColors.emergency
                                             .withValues(alpha: 0.12),
                                         borderRadius:
                                             BorderRadius.circular(999),
@@ -3341,7 +3338,7 @@ class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
                                       child: Text(
                                         s,
                                         style: const TextStyle(
-                                          color: AppColors.brand,
+                                          color: AppColors.emergency,
                                           fontSize: 11.5,
                                           fontWeight: FontWeight.w700,
                                         fontVariations: AppFonts.w700,
@@ -3389,7 +3386,7 @@ class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
                           label: 'Patient coordinates',
                           value:
                               '${_alert.latitude.toStringAsFixed(5)}, ${_alert.longitude.toStringAsFixed(5)}',
-                          color: AppColors.brand,
+                          color: AppColors.emergency,
                         ),
                         if (_alert.distanceKm != null) ...[
                           Divider(height: 24, color: AppColors.hairline),
@@ -3560,7 +3557,7 @@ class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
       context: context,
       builder: (context) => AlertDialog(
         icon:
-            const Icon(Icons.logout_rounded, color: AppColors.brand, size: 28),
+            const Icon(Icons.logout_rounded, color: AppColors.primary, size: 28),
         title: const Text('End this shift?'),
         content: const Text(
             'The receiver console will close and you will need to sign in again.'),
@@ -3570,7 +3567,7 @@ class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton.icon(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.brand),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
             onPressed: () => Navigator.of(context).pop(true),
             icon: const Icon(Icons.logout_rounded, size: 18),
             label: const Text('Log out'),
@@ -3683,7 +3680,7 @@ class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
                                       icon: Icons.inbox_rounded,
                                       label: 'Alerts received',
                                       value: '${_stats.total}',
-                                      color: AppColors.brand,
+                                      color: AppColors.primary,
                                     ),
                                   ],
                                 ),
@@ -3699,7 +3696,7 @@ class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
                               // Required by Google Play for apps with sign-up
                               TextButton(
                                 onPressed: () => open(context, const DeleteAccountScreen()),
-                                style: TextButton.styleFrom(foregroundColor: AppColors.brand),
+                                style: TextButton.styleFrom(foregroundColor: AppColors.emergency),
                                 child: const Text('Delete account'),
                               ),
                             ],
@@ -3854,7 +3851,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       context: context,
       builder: (context) => AlertDialog(
         icon:
-            const Icon(Icons.logout_rounded, color: AppColors.brand, size: 28),
+            const Icon(Icons.logout_rounded, color: AppColors.primary, size: 28),
         title: const Text('Log out?'),
         content: const Text(
             'You will need to sign in again to access your control centre.'),
@@ -3865,7 +3862,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
-              backgroundColor: AppColors.brand,
+              backgroundColor: AppColors.primary,
             ),
             onPressed: () => Navigator.of(context).pop(true),
             icon: const Icon(Icons.logout_rounded, size: 18),
@@ -3897,7 +3894,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Color _roleColor(String role) {
-    if (role == 'admin') return AppColors.brand;
+    if (role == 'admin') return AppColors.primary;
     if (role == 'physician' || role == 'doctor') return AppColors.success;
     return AppColors.sky;
   }
@@ -3925,7 +3922,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: AppColors.brand),
+                          strokeWidth: 2, color: AppColors.primary),
                     ),
                     const SizedBox(width: 10),
                   ],
@@ -3933,13 +3930,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     tooltip: 'Sync profile',
                     onPressed: _syncing ? null : _syncProfile,
                     icon: const Icon(Icons.refresh_rounded, size: 20),
-                    color: AppColors.brand,
+                    color: AppColors.primary,
                   ),
                   IconButton(
                     tooltip: 'Edit profile',
                     onPressed: _openEditForm,
                     icon: const Icon(Icons.edit_rounded, size: 20),
-                    color: AppColors.brand,
+                    color: AppColors.primary,
                   ),
                 ],
               ),
@@ -4094,7 +4091,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         // Required by Google Play for apps with sign-up
                         TextButton(
                           onPressed: () => open(context, const DeleteAccountScreen()),
-                          style: TextButton.styleFrom(foregroundColor: AppColors.brand),
+                          style: TextButton.styleFrom(foregroundColor: AppColors.emergency),
                           child: const Text('Delete account'),
                         ),
                       ],
@@ -4178,7 +4175,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               onBack: () => Navigator.of(context).pop(),
               trailing: StatusBadge(
                 label: 'Edit',
-                color: AppColors.brand,
+                color: AppColors.primary,
               ),
             ),
             Expanded(
@@ -4390,7 +4387,7 @@ class _VitalsCard extends StatelessWidget {
         vitals.heartRate < 60 ||
         vitals.oxygenLevel < 90 ||
         vitals.hasFever) {
-      return AppColors.brand;
+      return AppColors.emergency;
     }
     if (vitals.heartRate > 100 || vitals.oxygenLevel < 95) {
       return AppColors.warning;
@@ -4400,7 +4397,7 @@ class _VitalsCard extends StatelessWidget {
 
   Widget _vitalBadge(BuildContext context, IconData icon, String label,
       String value, bool abnormal) {
-    final color = abnormal ? AppColors.brand : AppColors.success;
+    final color = abnormal ? AppColors.emergency : AppColors.success;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -4506,7 +4503,7 @@ class VitalDetailScreen extends StatelessWidget {
         vitals.heartRate < 60 ||
         vitals.oxygenLevel < 90 ||
         vitals.hasFever) {
-      return AppColors.brand;
+      return AppColors.emergency;
     }
     if (vitals.heartRate > 100 || vitals.oxygenLevel < 95) {
       return AppColors.warning;
@@ -4547,7 +4544,7 @@ class VitalDetailScreen extends StatelessWidget {
                           value: '${vitals.heartRate}',
                           unit: 'bpm',
                           color: vitals.heartRate > 100
-                              ? AppColors.brand
+                              ? AppColors.emergency
                               : AppColors.success,
                         ),
                         const SizedBox(width: 12),
@@ -4571,7 +4568,7 @@ class VitalDetailScreen extends StatelessWidget {
                           value: vitals.temperature.toStringAsFixed(1),
                           unit: vitals.isCelsius ? '°C' : '°F',
                           color: vitals.hasFever
-                              ? AppColors.brand
+                              ? AppColors.emergency
                               : AppColors.success,
                         ),
                         const SizedBox(width: 12),
@@ -4942,7 +4939,7 @@ class _PatientScreenState extends State<PatientScreen> {
   }
 
   Color _getConditionColor(String condition) {
-    if (condition.contains('Critical')) return AppColors.brand;
+    if (condition.contains('Critical')) return AppColors.emergency;
     if (condition.contains('Monitoring')) return AppColors.warning;
     return AppColors.success;
   }
@@ -5125,7 +5122,7 @@ class PatientDetailScreen extends StatelessWidget {
   final PatientRecord patient;
 
   Color get _conditionColor {
-    if (patient.condition.contains('Critical')) return AppColors.brand;
+    if (patient.condition.contains('Critical')) return AppColors.emergency;
     if (patient.condition.contains('Monitoring')) return AppColors.warning;
     return AppColors.success;
   }

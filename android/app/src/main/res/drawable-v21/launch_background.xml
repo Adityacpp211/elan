@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Launch screen before Flutter draws (Android 11 and below): Élan red. -->
+<!-- Launch screen before Flutter draws (Android 11 and below): the Élan mark
+     centred on white, matching the first frame of the in-app splash. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/elan_red" />
+    <item android:drawable="@color/elan_splash_bg" />
+    <item>
+        <bitmap android:gravity="center" android:src="@drawable/splash_mark" />
+    </item>
 </layer-list>

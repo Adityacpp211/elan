@@ -202,9 +202,9 @@ class _DispatchTrackerScreenState extends State<DispatchTrackerScreen> {
                       icon: const Icon(Icons.call_rounded, size: 18),
                       label: const Text('Call 112 (emergency services)'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.brand,
+                        foregroundColor: AppColors.emergency,
                         side: BorderSide(
-                            color: AppColors.brand.withValues(alpha: 0.4)),
+                            color: AppColors.emergency.withValues(alpha: 0.4)),
                       ),
                     ),
                   ],
@@ -257,7 +257,7 @@ class _DispatchTrackerScreenState extends State<DispatchTrackerScreen> {
           );
         }
       case _Phase.noneAccepted:
-        color = AppColors.brand;
+        color = AppColors.emergency;
         title = 'No hospital could take this alert';
         body = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -422,7 +422,7 @@ class _DispatchTrackerScreenState extends State<DispatchTrackerScreen> {
         : d.declined
             ? ('Declined', AppColors.textMuted)
             : !d.delivered
-                ? ('Not delivered', AppColors.brand)
+                ? ('Not delivered', AppColors.emergency)
                 : ('Awaiting reply', AppColors.warning);
 
     return Padding(

@@ -24,6 +24,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/brand/
   # Manrope is a variable font (weights 200-800 in one file). It is declared
   # once; weights are selected through the 'wght' axis in code (AppFonts).
   fonts:

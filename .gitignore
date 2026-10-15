@@ -54,3 +54,6 @@ backend/.env
 *.keystore
 *.jks
 key.properties
+
+# Built APKs for sharing
+dist/

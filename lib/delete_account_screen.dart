@@ -155,7 +155,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                     onChanged: (v) => setState(() => _understood = v ?? false),
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
-                    activeColor: AppColors.brand,
+                    activeColor: AppColors.emergency,
                     title: Text('I understand this cannot be undone',
                         style: text.bodyLarge),
                   ),

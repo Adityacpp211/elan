@@ -15,8 +15,13 @@ import 'services/connection_status.dart';
 /// ApiService) send the user back to the login screen.
 final navigatorKey = GlobalKey<NavigatorState>();
 
+/// The first frame is held back until the splash logo is decoded, so the
+/// native launch screen hands over to an identical frame (see SplashScreen).
+bool _firstFrameDeferred = false;
+
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized().deferFirstFrame();
+  _firstFrameDeferred = true;
   ApiService().onUnauthorized = _handleExpiredSession;
   await AuthService().checkAutoLogin();
   ConnectionStatus().startMonitoring();
@@ -84,81 +89,137 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    duration: const Duration(milliseconds: 500),
+  /// Same size and position as the Android launch-screen mark, so the
+  /// hand-off from the system splash to this one is invisible.
+  static const _markSize = 132.0;
+
+  late final AnimationController _c = AnimationController(
+    duration: const Duration(milliseconds: 1100),
     vsync: this,
-  )..forward();
+  );
+
+  // The mark glides up to make room for the wordmark: the logo lockup forms.
+  late final Animation<double> _rise = CurvedAnimation(
+    parent: _c,
+    curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+  );
+  late final Animation<double> _word = CurvedAnimation(
+    parent: _c,
+    curve: const Interval(0.25, 0.75, curve: Curves.easeOutCubic),
+  );
+  late final Animation<double> _tagline = CurvedAnimation(
+    parent: _c,
+    curve: const Interval(0.45, 0.95, curve: Curves.easeOut),
+  );
+
+  bool _started = false;
 
   @override
-  void initState() {
-    super.initState();
-    // Brief by design: in an emergency nobody should wait on a logo.
-    Timer(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      final destination = AuthService().currentLoggedInUser != null
-          ? homeForSession()
-          : const LoginScreen() as Widget;
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
 
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 250),
-          pageBuilder: (_, animation, __) => FadeTransition(
-            opacity: animation,
-            child: destination,
-          ),
-        ),
-      );
+    // Decode the logo before showing anything: otherwise the first frame is
+    // blank and the system splash fades out over nothing (a visible blink).
+    precacheImage(const AssetImage(BrandMark.asset), context)
+        .whenComplete(() {
+      if (_firstFrameDeferred) {
+        _firstFrameDeferred = false;
+        WidgetsBinding.instance.allowFirstFrame();
+      }
+      if (!mounted) return;
+      // Respect the system "reduce motion" setting: show the final lockup.
+      if (MediaQuery.of(context).disableAnimations) {
+        _c.value = 1;
+      } else {
+        _c.forward();
+      }
+      // Brief by design: in an emergency nobody should wait on a logo.
+      Timer(const Duration(milliseconds: 1300), _goHome);
     });
+  }
+
+  void _goHome() {
+    if (!mounted) return;
+    final destination = AuthService().currentLoggedInUser != null
+        ? homeForSession()
+        : const LoginScreen() as Widget;
+
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 320),
+        pageBuilder: (_, animation, __) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: destination,
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _c.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light.copyWith(
+      value: SystemUiOverlayStyle.dark.copyWith(
         statusBarColor: Colors.transparent,
-        systemNavigationBarColor: AppColors.brand,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
       ),
       child: Scaffold(
-        backgroundColor: AppColors.brand,
-        body: Center(
-          child: FadeTransition(
-            opacity: CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-            child: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.favorite_rounded, size: 56, color: Colors.white),
-                SizedBox(height: 16),
-                Text(
-                  'Élan',
-                  style: TextStyle(
-                    fontFamily: AppFonts.display,
-                    fontSize: 40,
-                    letterSpacing: -1,
-                    fontWeight: FontWeight.w800,
-                    fontVariations: AppFonts.w800,
-                    color: Colors.white,
+        backgroundColor: Colors.white,
+        body: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            // Fill the screen so "center" is the screen's centre, where the
+            // system splash left the mark (a bare Stack hugs its content
+            // and sits top-left).
+            return SizedBox.expand(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Logo mark: starts exactly where the system splash left it
+                  Transform.translate(
+                    offset: Offset(0, -46 * _rise.value),
+                    child: Transform.scale(
+                      scale: 1 - 0.12 * _rise.value,
+                      child: const BrandMark(size: _markSize),
+                    ),
                   ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Emergency cardiac care',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    fontVariations: AppFonts.w600,
-                    color: Color(0xFFFCE4E7),
+                  // Wordmark rises into place beneath it
+                  Transform.translate(
+                    offset: Offset(0, 62 + 12 * (1 - _word.value)),
+                    child: Opacity(
+                      opacity: _word.value,
+                      child: const BrandWordmark(size: 40),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
+                  Transform.translate(
+                    offset: Offset(0, 104 + 8 * (1 - _tagline.value)),
+                    child: Opacity(
+                      opacity: _tagline.value,
+                      child: const Text(
+                        'Emergency cardiac care',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          fontVariations: AppFonts.w600,
+                          letterSpacing: 0.2,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
