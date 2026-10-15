@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const config = require('./config/config');
@@ -123,6 +124,7 @@ function createApp() {
     // Rate limiting
     app.use('/api/auth/register', authLimiter);
     app.use('/api/auth/login', authLimiter);
+    app.use('/api/auth/delete-account', authLimiter);
     app.use('/api/alerts/send', emergencyLimiter);
     app.use('/api', apiLimiter);
 
@@ -133,6 +135,12 @@ function createApp() {
             service: 'Élan Backend',
             timestamp: new Date().toISOString()
         });
+    });
+
+    // Public account-deletion page (required by Google Play for apps with
+    // sign-up). Its URL goes in the Play Console's Data safety form.
+    app.get('/delete-account', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public', 'delete-account.html'));
     });
 
     // API Routes

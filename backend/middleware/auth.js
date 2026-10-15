@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config/config');
+const User = require('../models/User');
 
 function authMiddleware(req, res, next) {
     const authHeader = req.headers.authorization;
@@ -17,6 +18,11 @@ function authMiddleware(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, config.jwtSecret);
+        // Tokens outlive accounts: once an account is deleted its token must
+        // stop working immediately, not when it expires days later.
+        if (!User.findById(decoded.userId)) {
+            return res.status(401).json({ error: 'Account no longer exists' });
+        }
         req.user = decoded;
         next();
     } catch (error) {
@@ -42,7 +48,7 @@ function optionalAuth(req, res, next) {
 
     try {
         const decoded = jwt.verify(parts[1], config.jwtSecret);
-        req.user = decoded;
+        if (User.findById(decoded.userId)) req.user = decoded;
     } catch (error) {
         // Ignore errors for optional auth
     }

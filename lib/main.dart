@@ -2,6 +2,7 @@
 // Entry point & splash.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 
 import 'models.dart';
@@ -83,54 +84,28 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _ringAnimation;
+  late final AnimationController _controller = AnimationController(
+    duration: const Duration(milliseconds: 500),
+    vsync: this,
+  )..forward();
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 1800),
-      vsync: this,
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 0.72, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.0, 0.7, curve: Curves.easeOutBack),
-      ),
-    );
-
-    _ringAnimation = Tween<double>(begin: 0.9, end: 1.35).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-
-    _controller.forward();
-
-    Timer(const Duration(seconds: 3), () {
+    // Brief by design: in an emergency nobody should wait on a logo.
+    Timer(const Duration(milliseconds: 900), () {
       if (!mounted) return;
-      final authService = AuthService();
-      final destination = authService.currentLoggedInUser != null
+      final destination = AuthService().currentLoggedInUser != null
           ? homeForSession()
           : const LoginScreen() as Widget;
 
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 250),
           pageBuilder: (_, animation, __) => FadeTransition(
             opacity: animation,
             child: destination,
-          ),
-          transitionsBuilder: (_, animation, __, child) => FadeTransition(
-            opacity: animation,
-            child: child,
           ),
         ),
       );
@@ -145,108 +120,40 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: AppBackground(
-        child: Center(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: AppColors.brand,
+      ),
+      child: Scaffold(
+        backgroundColor: AppColors.brand,
+        body: Center(
           child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            opacity: CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
-                  width: 132,
-                  height: 132,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Expanding pulse rings that fade as they grow. Opacity
-                      // is driven by the animation (it was previously read
-                      // once at build time) and clamped, since the raw
-                      // formulas go negative near the end of the curve.
-                      AnimatedBuilder(
-                        animation: _ringAnimation,
-                        builder: (context, child) => Transform.scale(
-                          scale: _ringAnimation.value,
-                          child: Opacity(
-                            opacity: (0.12 - (_ringAnimation.value - 0.9) * 0.4)
-                                .clamp(0.0, 1.0),
-                            child: child,
-                          ),
-                        ),
-                        child: Container(
-                          width: 132,
-                          height: 132,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: AppColors.brand,
-                              width: 2,
-                            ),
-                          ),
-                        ),
-                      ),
-                      AnimatedBuilder(
-                        animation: _ringAnimation,
-                        builder: (context, child) => Transform.scale(
-                          scale: _ringAnimation.value,
-                          child: Opacity(
-                            opacity: (0.2 - (_ringAnimation.value - 0.9))
-                                .clamp(0.0, 1.0),
-                            child: child,
-                          ),
-                        ),
-                        child: Container(
-                          width: 118,
-                          height: 118,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.brand.withValues(alpha: 0.18),
-                          ),
-                        ),
-                      ),
-                      ScaleTransition(
-                        scale: _scaleAnimation,
-                        child: const BrandMark(size: 84),
-                      ),
-                    ],
+                Icon(Icons.favorite_rounded, size: 56, color: Colors.white),
+                SizedBox(height: 16),
+                Text(
+                  'Élan',
+                  style: TextStyle(
+                    fontFamily: AppFonts.display,
+                    fontSize: 40,
+                    letterSpacing: -1,
+                    fontWeight: FontWeight.w800,
+                    fontVariations: AppFonts.w800,
+                    color: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 28),
-                FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: Text(
-                    'Élan',
-                    style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                          letterSpacing: 0.5,
-                        ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: EyebrowLabel(
-                    text: 'Emergency cardiac care',
-                    color: AppColors.brand,
-                  ),
-                ),
-                const SizedBox(height: 48),
-                // Loading dots
-                FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(3, (i) {
-                      return Container(
-                        width: 6,
-                        height: 6,
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        decoration: BoxDecoration(
-                          color:
-                              AppColors.brand.withValues(alpha: 0.35 + i * 0.3),
-                          shape: BoxShape.circle,
-                        ),
-                      );
-                    }),
+                SizedBox(height: 4),
+                Text(
+                  'Emergency cardiac care',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    fontVariations: AppFonts.w600,
+                    color: Color(0xFFFCE4E7),
                   ),
                 ),
               ],

@@ -106,7 +106,6 @@ void main() {
 
     // Header is the facility, not the member dashboard.
     expect(find.text('Bahubali Children Hospital'), findsOneWidget);
-    expect(find.text('RECEIVER CONSOLE'), findsOneWidget);
     expect(find.text('duty@bahubali-hospital.com'), findsOneWidget);
 
     // The alert card carries the patient, symptoms, and distance.
@@ -117,11 +116,11 @@ void main() {
     expect(find.text('420 m'), findsOneWidget);
 
     // Counters reflect the cached inbox: one new, nothing accepted or passed.
-    expect(find.text('AWAITING'), findsOneWidget);
+    expect(find.text('Awaiting'), findsOneWidget);
     expect(find.text('1'), findsWidgets);
 
     // A new alert is actionable.
-    expect(find.text('Accept'), findsOneWidget);
+    expect(find.text('10 min'), findsOneWidget); // one-tap ETA accept
     expect(find.text('Pass'), findsOneWidget);
 
     // Server was unreachable, so the offline banner is shown.
@@ -144,9 +143,10 @@ void main() {
     await pumpConsole(tester);
 
     expect(find.text('Team en route · ~8 min'), findsOneWidget);
-    expect(find.text('Accept'), findsNothing);
+    expect(find.text('10 min'), findsNothing);
     expect(find.text('Pass'), findsNothing);
-    expect(find.text('Accepted'), findsOneWidget);
+    // Once as the counter label, once as the card's status badge
+    expect(find.text('Accepted'), findsNWidgets(2));
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -162,7 +162,7 @@ void main() {
     await pumpConsole(tester);
 
     expect(find.text('No cath lab available tonight'), findsOneWidget);
-    expect(find.text('Accept'), findsNothing);
+    expect(find.text('10 min'), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -200,7 +200,6 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('RECEIVER DESK'), findsOneWidget);
     expect(find.text('Sign in to receive and respond to Élan alerts'),
         findsOneWidget);
     expect(find.text('Hospital staff'), findsOneWidget);

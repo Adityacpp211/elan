@@ -24,30 +24,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Manrope is a variable font (weights 200-800 in one file). It is declared
+  # once; weights are selected through the 'wght' axis in code (AppFonts).
   fonts:
     - family: Manrope
       fonts:
         - asset: assets/fonts/Manrope.ttf
-          weight: 300
-        - asset: assets/fonts/Manrope.ttf
-          weight: 400
-        - asset: assets/fonts/Manrope.ttf
-          weight: 500
-        - asset: assets/fonts/Manrope.ttf
-          weight: 600
-        - asset: assets/fonts/Manrope.ttf
-          weight: 700
-        - asset: assets/fonts/Manrope.ttf
-          weight: 800
-    - family: SpaceGrotesk
-      fonts:
-        - asset: assets/fonts/SpaceGrotesk.ttf
-          weight: 300
-        - asset: assets/fonts/SpaceGrotesk.ttf
-          weight: 400
-        - asset: assets/fonts/SpaceGrotesk.ttf
-          weight: 500
-        - asset: assets/fonts/SpaceGrotesk.ttf
-          weight: 600
-        - asset: assets/fonts/SpaceGrotesk.ttf
-          weight: 700

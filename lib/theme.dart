@@ -1,31 +1,37 @@
 // Élan Design System
-// Typography: Space Grotesk (display) + Manrope (body)
+//
+// A calm, clinical look: warm paper canvas, ink text, flat white cards with
+// hairline borders, and a single signal red reserved for emergency actions.
+// No glows, gradients or decorative shadows. One typeface (Manrope).
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import 'services/api_service.dart';
 import 'services/connection_status.dart';
 
 // ==================== COLOR TOKENS ====================
 
 abstract final class AppColors {
   // Canvas
-  static const ink = Color(0xFF070A13);
-  static const surface = Color(0xFF0D1220);
-  static const surfaceRaised = Color(0xFF141B2E);
-  static const hairline = Color(0xFF232C49);
+  static const ink = Color(0xFFF4F2ED); // page background (warm paper)
+  static const surface = Color(0xFFFFFFFF); // cards
+  static const surfaceRaised = Color(0xFFF0EDE7); // inset areas
+  static const hairline = Color(0xFFDDD8CF);
 
-  // Text
-  static const textPrimary = Color(0xFFF4F6FB);
-  static const textSecondary = Color(0xFF9AA3BF);
-  static const textMuted = Color(0xFF5E6784);
+  // Text (all at least 4.5:1 on surface and canvas)
+  static const textPrimary = Color(0xFF16181D);
+  static const textSecondary = Color(0xFF474C57);
+  static const textMuted = Color(0xFF6B707A);
 
-  // Semantics
-  static const brand = Color(0xFFFF4D5E); // emergency
-  static const brandSoft = Color(0xFF3A1520);
-  static const alert = Color(0xFF6C7CFF); // hospital alerts
-  static const success = Color(0xFF3DDC97);
-  static const warning = Color(0xFFF5B856);
-  static const sky = Color(0xFF39B6F0);
+  // Semantics: muted, print-like hues that stay legible as text on white
+  static const brand = Color(0xFFC8102E); // emergency / critical only
+  static const brandSoft = Color(0xFFFBE9EB);
+  static const alert = Color(0xFF1F4E8C); // hospitals, informational
+  static const success = Color(0xFF1C7A47);
+  static const warning = Color(0xFF9A5B00);
+  static const sky = Color(0xFF256D8F);
 }
 
 abstract final class AppSpace {
@@ -39,15 +45,32 @@ abstract final class AppSpace {
 }
 
 abstract final class AppRadius {
-  static const sm = 12.0;
-  static const md = 16.0;
-  static const lg = 20.0;
-  static const xl = 24.0;
+  static const sm = 8.0;
+  static const md = 10.0;
+  static const lg = 12.0;
+  static const xl = 16.0;
 }
 
 abstract final class AppFonts {
-  static const display = 'SpaceGrotesk';
+  // One family throughout; hierarchy comes from size and weight.
+  static const display = 'Manrope';
   static const body = 'Manrope';
+
+  // Manrope ships as a variable font whose default instance is ExtraLight,
+  // and Flutter does not map `fontWeight` onto the variable 'wght' axis.
+  // Every weighted style therefore pairs its fontWeight with one of these.
+  static const w200 = [FontVariation('wght', 200)];
+  static const w300 = [FontVariation('wght', 300)];
+  static const w400 = [FontVariation('wght', 400)];
+  static const w500 = [FontVariation('wght', 500)];
+  static const w600 = [FontVariation('wght', 600)];
+  static const w700 = [FontVariation('wght', 700)];
+  static const w800 = [FontVariation('wght', 800)];
+  static const w900 = [FontVariation('wght', 800)]; // axis tops out at 800
+
+  /// The axis value for [weight], for styles built without an explicit one.
+  static List<FontVariation> forWeight(FontWeight? weight) =>
+      [FontVariation('wght', ((weight ?? FontWeight.w400).value).clamp(200, 800).toDouble())];
 }
 
 // ==================== THEME ====================
@@ -55,9 +78,38 @@ abstract final class AppFonts {
 class AppTheme {
   AppTheme._();
 
-  static ThemeData dark() {
-    const colorScheme = ColorScheme.dark(
-      brightness: Brightness.dark,
+  /// Give every text style the variable-font axis for its weight (see
+  /// [AppFonts]); slots inherited from Material's defaults have none.
+  static TextTheme _withWeightAxes(TextTheme t) {
+    TextStyle? fix(TextStyle? s) => s == null || s.fontVariations != null
+        ? s
+        : s.copyWith(fontVariations: AppFonts.forWeight(s.fontWeight));
+    return TextTheme(
+      displayLarge: fix(t.displayLarge),
+      displayMedium: fix(t.displayMedium),
+      displaySmall: fix(t.displaySmall),
+      headlineLarge: fix(t.headlineLarge),
+      headlineMedium: fix(t.headlineMedium),
+      headlineSmall: fix(t.headlineSmall),
+      titleLarge: fix(t.titleLarge),
+      titleMedium: fix(t.titleMedium),
+      titleSmall: fix(t.titleSmall),
+      bodyLarge: fix(t.bodyLarge),
+      bodyMedium: fix(t.bodyMedium),
+      bodySmall: fix(t.bodySmall),
+      labelLarge: fix(t.labelLarge),
+      labelMedium: fix(t.labelMedium),
+      labelSmall: fix(t.labelSmall),
+    );
+  }
+
+  /// Kept under the old name so call sites don't change; the app now has a
+  /// single light theme.
+  static ThemeData dark() => light();
+
+  static ThemeData light() {
+    const colorScheme = ColorScheme.light(
+      brightness: Brightness.light,
       primary: AppColors.brand,
       onPrimary: Colors.white,
       secondary: AppColors.alert,
@@ -72,91 +124,109 @@ class AppTheme {
 
     final base = ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: AppColors.ink,
       fontFamily: AppFonts.body,
-      splashFactory: InkSparkle.splashFactory,
+      splashFactory: InkRipple.splashFactory,
     );
 
     final textTheme = base.textTheme.copyWith(
       // Display — Space Grotesk
       displayLarge: const TextStyle(
           fontFamily: AppFonts.display,
-          fontSize: 40,
-          height: 1.05,
-          fontWeight: FontWeight.w700,
+          fontSize: 34,
+          height: 1.1,
+          letterSpacing: -0.8,
+          fontWeight: FontWeight.w800,
+          fontVariations: AppFonts.w800,
           color: AppColors.textPrimary),
       displayMedium: const TextStyle(
           fontFamily: AppFonts.display,
-          fontSize: 32,
-          height: 1.1,
-          fontWeight: FontWeight.w700,
+          fontSize: 28,
+          height: 1.15,
+          letterSpacing: -0.6,
+          fontWeight: FontWeight.w800,
+          fontVariations: AppFonts.w800,
           color: AppColors.textPrimary),
       headlineLarge: const TextStyle(
           fontFamily: AppFonts.display,
-          fontSize: 28,
-          height: 1.15,
-          fontWeight: FontWeight.w700,
+          fontSize: 24,
+          height: 1.2,
+          letterSpacing: -0.4,
+          fontWeight: FontWeight.w800,
+          fontVariations: AppFonts.w800,
           color: AppColors.textPrimary),
       headlineMedium: const TextStyle(
           fontFamily: AppFonts.display,
-          fontSize: 24,
-          height: 1.2,
-          fontWeight: FontWeight.w600,
+          fontSize: 22,
+          height: 1.25,
+          letterSpacing: -0.3,
+          fontWeight: FontWeight.w800,
+          fontVariations: AppFonts.w800,
           color: AppColors.textPrimary),
       headlineSmall: const TextStyle(
           fontFamily: AppFonts.display,
-          fontSize: 20,
-          height: 1.25,
-          fontWeight: FontWeight.w600,
+          fontSize: 19,
+          height: 1.3,
+          letterSpacing: -0.2,
+          fontWeight: FontWeight.w700,
+          fontVariations: AppFonts.w700,
           color: AppColors.textPrimary),
       titleLarge: const TextStyle(
           fontFamily: AppFonts.display,
-          fontSize: 18,
+          fontSize: 17,
           height: 1.3,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
+          fontVariations: AppFonts.w700,
           color: AppColors.textPrimary),
       titleMedium: const TextStyle(
           fontSize: 16,
           height: 1.35,
           fontWeight: FontWeight.w600,
+          fontVariations: AppFonts.w600,
           color: AppColors.textPrimary),
       titleSmall: const TextStyle(
           fontSize: 14,
           height: 1.4,
           fontWeight: FontWeight.w700,
+          fontVariations: AppFonts.w700,
           color: AppColors.textSecondary),
       // Body — Manrope
       bodyLarge: const TextStyle(
           fontSize: 15,
           height: 1.55,
           fontWeight: FontWeight.w500,
+          fontVariations: AppFonts.w500,
           color: AppColors.textPrimary),
       bodyMedium: const TextStyle(
-          fontSize: 13.5,
-          height: 1.55,
+          fontSize: 14,
+          height: 1.5,
           fontWeight: FontWeight.w500,
+          fontVariations: AppFonts.w500,
           color: AppColors.textSecondary),
       bodySmall: const TextStyle(
           fontSize: 12,
           height: 1.5,
           fontWeight: FontWeight.w500,
+          fontVariations: AppFonts.w500,
           color: AppColors.textMuted),
       labelLarge: const TextStyle(
           fontSize: 14.5,
           letterSpacing: 0.1,
           fontWeight: FontWeight.w700,
+          fontVariations: AppFonts.w700,
           color: AppColors.textPrimary),
       labelMedium: const TextStyle(
-          fontSize: 12, letterSpacing: 0.3, fontWeight: FontWeight.w700),
+          fontSize: 12, letterSpacing: 0.3, fontWeight: FontWeight.w700,fontVariations: AppFonts.w700,),
       labelSmall: const TextStyle(
-          fontSize: 11, letterSpacing: 1.2, fontWeight: FontWeight.w700),
+          fontSize: 11.5, letterSpacing: 0.3, fontWeight: FontWeight.w700,fontVariations: AppFonts.w700,),
     );
 
     return base.copyWith(
-      textTheme: textTheme,
+      textTheme: _withWeightAxes(textTheme),
       appBarTheme: const AppBarTheme(
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
         backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -165,17 +235,17 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceRaised,
+        fillColor: AppColors.surface,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         labelStyle: const TextStyle(
             fontSize: 14,
             color: AppColors.textMuted,
-            fontWeight: FontWeight.w500),
+            fontWeight: FontWeight.w500,fontVariations: AppFonts.w500,),
         hintStyle: const TextStyle(
             fontSize: 14,
             color: AppColors.textMuted,
-            fontWeight: FontWeight.w400),
+            fontWeight: FontWeight.w400,fontVariations: AppFonts.w400,),
         errorStyle: const TextStyle(fontSize: 12, color: AppColors.brand),
         prefixIconColor: AppColors.textMuted,
         suffixIconColor: AppColors.textMuted,
@@ -185,12 +255,12 @@ class AppTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          borderSide:
-              BorderSide(color: AppColors.hairline.withValues(alpha: 0.8)),
+          borderSide: const BorderSide(color: AppColors.hairline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          borderSide: const BorderSide(color: AppColors.brand, width: 1.6),
+          borderSide:
+              const BorderSide(color: AppColors.textPrimary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -201,7 +271,7 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.brand,
           foregroundColor: Colors.white,
-          minimumSize: const Size(0, 54),
+          minimumSize: const Size(0, 52),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.sm)),
@@ -209,6 +279,7 @@ class AppTheme {
               fontFamily: AppFonts.body,
               fontSize: 15,
               fontWeight: FontWeight.w700,
+              fontVariations: AppFonts.w700,
               letterSpacing: 0.3),
         ),
       ),
@@ -217,8 +288,8 @@ class AppTheme {
           backgroundColor: AppColors.brand,
           foregroundColor: Colors.white,
           elevation: 0,
-          shadowColor: AppColors.brand.withValues(alpha: 0.5),
-          minimumSize: const Size(0, 54),
+          shadowColor: Colors.transparent,
+          minimumSize: const Size(0, 52),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.sm)),
@@ -226,6 +297,7 @@ class AppTheme {
               fontFamily: AppFonts.body,
               fontSize: 15,
               fontWeight: FontWeight.w700,
+              fontVariations: AppFonts.w700,
               letterSpacing: 0.3),
         ),
       ),
@@ -233,14 +305,14 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.textPrimary,
           side: const BorderSide(color: AppColors.hairline),
-          minimumSize: const Size(0, 54),
+          minimumSize: const Size(0, 52),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.sm)),
           textStyle: const TextStyle(
               fontFamily: AppFonts.body,
               fontSize: 15,
-              fontWeight: FontWeight.w700),
+              fontWeight: FontWeight.w700,fontVariations: AppFonts.w700,),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -249,7 +321,7 @@ class AppTheme {
           textStyle: const TextStyle(
               fontFamily: AppFonts.body,
               fontSize: 14,
-              fontWeight: FontWeight.w700),
+              fontWeight: FontWeight.w700,fontVariations: AppFonts.w700,),
         ),
       ),
       dividerTheme: const DividerThemeData(
@@ -266,7 +338,7 @@ class AppTheme {
         margin: EdgeInsets.zero,
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.surfaceRaised,
+        backgroundColor: AppColors.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -275,19 +347,26 @@ class AppTheme {
         titleTextStyle: textTheme.headlineSmall,
         contentTextStyle: textTheme.bodyMedium,
       ),
+      // Dark snackbars stand out against the light canvas
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.surfaceRaised,
+        backgroundColor: AppColors.textPrimary,
         contentTextStyle: const TextStyle(
             fontFamily: AppFonts.body,
             fontSize: 13.5,
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w600),
+            color: Colors.white,
+            fontWeight: FontWeight.w600,fontVariations: AppFonts.w600,),
+        actionTextColor: Colors.white,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          side: const BorderSide(color: AppColors.hairline),
         ),
       ),
+      datePickerTheme: const DatePickerThemeData(
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      progressIndicatorTheme:
+          const ProgressIndicatorThemeData(color: AppColors.textPrimary),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: AppColors.surface,
         surfaceTintColor: Colors.transparent,
@@ -298,7 +377,8 @@ class AppTheme {
 
 // ==================== SHARED WIDGETS ====================
 
-/// Full-screen canvas with a subtle aurora glow in the top-left corner.
+/// Full-screen page canvas. [glow] is accepted for compatibility but no
+/// longer drawn: pages are flat paper.
 class AppBackground extends StatelessWidget {
   const AppBackground({super.key, required this.child, this.glow});
   final Widget child;
@@ -308,29 +388,22 @@ class AppBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     // Every screen renders inside this, so the Scaffold lives here: it is what
     // ScaffoldMessenger attaches SnackBars to.
-    return Scaffold(
-      backgroundColor: AppColors.ink,
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          color: AppColors.ink,
-          gradient: RadialGradient(
-            center: const Alignment(-0.9, -1.1),
-            radius: 1.6,
-            colors: [
-              (glow ?? AppColors.brand).withValues(alpha: 0.07),
-              (glow ?? AppColors.brand).withValues(alpha: 0.0),
-            ],
-          ),
-        ),
-        child: child,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Dark status-bar icons on the light canvas
+      value: SystemUiOverlayStyle.dark.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: AppColors.ink,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
+      child: Scaffold(
+        backgroundColor: AppColors.ink,
+        body: SizedBox.expand(child: child),
       ),
     );
   }
 }
 
-/// The Élan brand mark — a rounded tile with a soft glow.
+/// The Élan brand mark: a flat signal-red tile.
 class BrandMark extends StatelessWidget {
   const BrandMark({super.key, this.size = 56, this.color});
   final double size;
@@ -343,27 +416,8 @@ class BrandMark extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.28),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.95),
-            accent.withValues(alpha: 0.55)
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.35),
-            blurRadius: size * 0.6,
-            spreadRadius: 0,
-          ),
-          BoxShadow(
-            color: accent.withValues(alpha: 0.18),
-            blurRadius: size * 0.2,
-            offset: Offset(0, size * 0.08),
-          ),
-        ],
+        color: accent,
+        borderRadius: BorderRadius.circular(size * 0.22),
       ),
       child: Padding(
         padding: EdgeInsets.all(size * 0.2),
@@ -397,9 +451,8 @@ class IconTile extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(size * 0.32),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(size * 0.24),
       ),
       child: Icon(icon, size: iconSize ?? size * 0.48, color: color),
     );
@@ -451,9 +504,11 @@ class ScreenHeader extends StatelessWidget implements PreferredSizeWidget {
                   onPressed: onBack,
                   icon: const Icon(Icons.arrow_back_rounded),
                   style: IconButton.styleFrom(
-                    backgroundColor: AppColors.surfaceRaised,
+                    backgroundColor: AppColors.surface,
                     foregroundColor: AppColors.textPrimary,
                     side: const BorderSide(color: AppColors.hairline),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.sm)),
                   ),
                 ),
               if (onBack != null) const SizedBox(width: AppSpace.md),
@@ -463,11 +518,8 @@ class ScreenHeader extends StatelessWidget implements PreferredSizeWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (eyebrow != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: EyebrowLabel(text: eyebrow!),
-                      ),
+                    // [eyebrow] is intentionally not rendered: a kicker
+                    // above every title was noise.
                     if (title != null)
                       Text(title!,
                           style: Theme.of(context).textTheme.headlineSmall,
@@ -512,7 +564,8 @@ class EyebrowLabel extends StatelessWidget {
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: color,
             fontWeight: FontWeight.w700,
-            letterSpacing: 1.6,
+            fontVariations: AppFonts.w700,
+            letterSpacing: 0.8,
           ),
     );
   }
@@ -535,18 +588,14 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (eyebrow != null) ...[
-                EyebrowLabel(
-                    text: eyebrow!, color: color ?? AppColors.textMuted),
-                const SizedBox(height: 6),
-              ],
-              Text(title, style: Theme.of(context).textTheme.headlineSmall),
+              // [eyebrow] is kept in the API but not rendered.
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
             ],
           ),
         ),
@@ -571,12 +620,10 @@ class StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: fill ? color.withValues(alpha: 0.12) : AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-            color: fill ? color.withValues(alpha: 0.35) : AppColors.hairline),
+        color: fill ? color.withValues(alpha: 0.10) : AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -593,6 +640,7 @@ class StatusBadge extends StatelessWidget {
               color: fill ? color : AppColors.textSecondary,
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
+              fontVariations: AppFonts.w700,
               letterSpacing: 0.2,
             ),
           ),
@@ -621,11 +669,26 @@ class ServerStatusPill extends StatelessWidget {
               syncing ? 'Online · synced' : 'Server online',
               AppColors.success
             ),
-          ServerStatus.offline => ('Offline · local', AppColors.warning),
+          ServerStatus.offline => ('Server offline', AppColors.brand),
         };
 
         return GestureDetector(
-          onTap: ConnectionStatus().refresh,
+          onTap: () async {
+            final messenger = ScaffoldMessenger.maybeOf(context);
+            await ConnectionStatus().refresh();
+            if (!ConnectionStatus().isOnline) {
+              // Say what is unreachable: the usual cause in development is
+              // a backend that isn't running, or an API_BASE_URL that points
+              // at the wrong host.
+              messenger?.showSnackBar(SnackBar(
+                content: Text(kDebugMode
+                    ? 'Cannot reach ${ApiService.baseUrl}. Is the backend '
+                        'running (cd backend && npm start)?'
+                    : 'Cannot reach the Élan server. Check your internet '
+                        'connection.'),
+              ));
+            }
+          },
           child: StatusBadge(label: label, color: color),
         );
       },
@@ -662,13 +725,6 @@ class SurfaceCard extends StatelessWidget {
         color: color ?? AppColors.surface,
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(color: borderColor ?? AppColors.hairline),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.22),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
       ),
       child: child,
     );
@@ -704,15 +760,14 @@ class PrimaryButton extends StatelessWidget {
     final enabled = onPressed != null && !loading;
     return SizedBox(
       width: double.infinity,
-      height: 56,
+      height: 54,
       child: ElevatedButton(
         onPressed: enabled ? onPressed : null,
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
-          disabledBackgroundColor: color.withValues(alpha: 0.35),
-          disabledForegroundColor: Colors.white.withValues(alpha: 0.7),
-          elevation: enabled ? 6 : 0,
-          shadowColor: color.withValues(alpha: 0.5),
+          disabledBackgroundColor: color.withValues(alpha: 0.3),
+          disabledForegroundColor: Colors.white,
+          elevation: 0,
         ),
         child: loading
             ? SizedBox(
@@ -740,6 +795,165 @@ class PrimaryButton extends StatelessWidget {
   }
 }
 
+/// Press-and-hold action for irreversible, high-stakes sends (the SOS).
+///
+/// Holding fills the button over [holdDuration]; letting go early cancels
+/// and the fill drains back. This replaces a confirm dialog: it guards
+/// against accidental taps without adding a step in an emergency.
+class HoldToSendButton extends StatefulWidget {
+  const HoldToSendButton({
+    super.key,
+    required this.label,
+    required this.onConfirmed,
+    this.caption,
+    this.color = AppColors.brand,
+    this.loading = false,
+    this.loadingLabel = 'Sending…',
+    this.holdDuration = const Duration(milliseconds: 1500),
+  });
+
+  final String label;
+  final String? caption;
+  final VoidCallback? onConfirmed;
+  final Color color;
+  final bool loading;
+  final String loadingLabel;
+  final Duration holdDuration;
+
+  @override
+  State<HoldToSendButton> createState() => _HoldToSendButtonState();
+}
+
+class _HoldToSendButtonState extends State<HoldToSendButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fill =
+      AnimationController(vsync: this, duration: widget.holdDuration)
+        ..addStatusListener(_onStatus);
+
+  bool get _enabled => widget.onConfirmed != null && !widget.loading;
+
+  void _onStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    HapticFeedback.heavyImpact();
+    widget.onConfirmed?.call();
+    _fill.value = 0;
+  }
+
+  void _start() {
+    if (!_enabled) return;
+    HapticFeedback.selectionClick();
+    _fill.forward();
+  }
+
+  void _cancel() {
+    if (_fill.isCompleted || _fill.value == 0) return;
+    _fill.animateBack(0,
+        duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+  }
+
+  @override
+  void dispose() {
+    _fill.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = _enabled ? widget.color : widget.color.withValues(alpha: 0.35);
+    final dark = Color.lerp(widget.color, Colors.black, 0.28)!;
+
+    return Semantics(
+      button: true,
+      enabled: _enabled,
+      label: '${widget.label}. Press and hold to send.',
+      onLongPress: _enabled ? widget.onConfirmed : null,
+      child: GestureDetector(
+        onTapDown: (_) => _start(),
+        onTapUp: (_) => _cancel(),
+        onTapCancel: _cancel,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          child: SizedBox(
+            height: 60,
+            child: AnimatedBuilder(
+              animation: _fill,
+              builder: (context, _) {
+                final holding = _fill.value > 0;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ColoredBox(color: base),
+                    // Progress fill sweeps left to right while held
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: _fill.value,
+                      child: ColoredBox(color: dark),
+                    ),
+                    Center(
+                      child: widget.loading
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2.2, color: Colors.white),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(widget.loadingLabel,
+                                    style: _labelStyle),
+                              ],
+                            )
+                          : Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.sos_rounded,
+                                        color: Colors.white, size: 22),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      holding ? 'Keep holding…' : widget.label,
+                                      style: _labelStyle,
+                                    ),
+                                  ],
+                                ),
+                                if (widget.caption != null && !holding)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      widget.caption!,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        fontVariations: AppFonts.w600,
+                                        color: Color(0xFFFCE4E7),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static const _labelStyle = TextStyle(
+    fontSize: 16.5,
+    fontWeight: FontWeight.w800,
+    fontVariations: AppFonts.w800,
+    color: Colors.white,
+  );
+}
+
 /// Tonal secondary button.
 class TonalButton extends StatelessWidget {
   const TonalButton({
@@ -762,9 +976,9 @@ class TonalButton extends StatelessWidget {
       child: FilledButton.tonal(
         onPressed: onPressed,
         style: FilledButton.styleFrom(
-          backgroundColor: color.withValues(alpha: 0.14),
+          backgroundColor: color.withValues(alpha: 0.09),
           foregroundColor: color,
-          disabledBackgroundColor: color.withValues(alpha: 0.08),
+          disabledBackgroundColor: color.withValues(alpha: 0.05),
           minimumSize: const Size(0, 52),
         ),
         child: Row(
@@ -793,9 +1007,9 @@ class ErrorBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.brand.withValues(alpha: 0.1),
+        color: AppColors.brandSoft,
         borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: AppColors.brand.withValues(alpha: 0.4)),
+        border: Border.all(color: AppColors.brand.withValues(alpha: 0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -807,9 +1021,10 @@ class ErrorBanner extends StatelessWidget {
             child: Text(
               message,
               style: TextStyle(
-                  color: AppColors.brand.withValues(alpha: 0.95),
+                  color: AppColors.brand,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
+                  fontVariations: AppFonts.w600,
                   height: 1.4),
             ),
           ),
@@ -841,8 +1056,8 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            IconTile(icon: icon, color: color, size: 84, iconSize: 38),
-            const SizedBox(height: 22),
+            IconTile(icon: icon, color: color, size: 64, iconSize: 30),
+            const SizedBox(height: 18),
             Text(title, style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
             Text(
@@ -912,15 +1127,15 @@ class StatValue extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          label.toUpperCase(),
+          label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context)
               .textTheme
-              .labelSmall
+              .bodySmall
               ?.copyWith(color: AppColors.textMuted),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Row(
           children: [
             if (icon != null) ...[
@@ -933,14 +1148,17 @@ class StatValue extends StatelessWidget {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
+                // Values stay ink; colour lives on the icon only, so a count
+                // doesn't read as a warning just because its icon is red.
                 child: Text(
                   value,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontFamily: AppFonts.display,
                     fontSize: 22,
                     height: 1.1,
-                    fontWeight: FontWeight.w700,
-                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontVariations: AppFonts.w800,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ),

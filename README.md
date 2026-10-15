@@ -28,11 +28,12 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 
 ## Key Features
 
-- **One-tap SOS** — Send an emergency alert with pre-selected symptoms and your live GPS location in a single tap.
+- **Hold-to-send SOS** — Press and hold for 1.5 s to send symptoms and your live GPS location. Holding guards against accidental alerts without a confirm dialog slowing you down.
+- **Live dispatch tracker** — After sending, follow the alert from "sent" to "help is on the way": a running timer, a timeline, the accepting hospital's ETA countdown, and one-tap calls to hospitals or 112.
 - **Tiered response** — Choose how wide the net goes: 1, 3, or up to 10 nearby hospitals notified per alert.
 - **Location-aware hospitals** — GPS-driven search surfaces verified hospitals ranked by distance, backed by a live hospital database on the backend.
 - **Secure payments** — Flat tiered alert pricing through the **Razorpay** gateway (a demo wallet stands in during local development). You are charged only once the server confirms a hospital is in range.
-- **Hospital receiver desk** — A role-based console for hospital staff: live inbox, one-tap accept or pass, an arrival estimate the patient sees, and a facility profile.
+- **Hospital triage desk** — A console for hospital staff: unanswered alerts first, a live "waiting" timer that turns red after 2 minutes, the patient's own message, and one-tap accept with an arrival estimate (5/10/15/20 min) the patient sees immediately.
 - **Hospital alert feed** — Track every alert you've sent, its status, and which hospitals acknowledged it.
 - **Patient records** — Manage patient profiles with admission details, blood type, room, and condition.
 - **Vitals monitoring** — Log and view heart rate, blood pressure, temperature, and oxygen saturation over time.
@@ -130,8 +131,13 @@ flutter test
 > flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000
 > ```
 >
-> Plain `http://` only works in debug/profile builds. **Release builds require
-> an `https://` backend**, because patient locations must not travel unencrypted.
+> Use an `https://` backend for anything beyond local testing: patient
+> locations must not travel unencrypted. (Flutter's HTTP client does not apply
+> Android's cleartext setting, so the app does not enforce this for you.)
+>
+> **"Server offline" in the app** means nothing answered at that address: start
+> the backend (`cd backend && npm start`) and check `API_BASE_URL`. In debug
+> builds, tap the status pill to see the exact URL the app is trying.
 
 ### Production checklist
 

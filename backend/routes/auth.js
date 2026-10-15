@@ -276,6 +276,57 @@ router.put('/me', authMiddleware, (req, res) => {
     }
 });
 
+// ==================== ACCOUNT DELETION ====================
+// Google Play requires apps with sign-up to let users delete their account
+// both inside the app and from the web. Both paths require the password, so
+// a stolen-but-unlocked phone or a guessed email can't erase an account.
+
+async function deleteAccountWithPassword(user, password, res, { wrongPasswordStatus = 401 } = {}) {
+    if (typeof password !== 'string' || !password) {
+        return res.status(400).json({ error: 'Your password is required to delete your account' });
+    }
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+        return res.status(wrongPasswordStatus).json({
+            error: wrongPasswordStatus === 403 ? 'Incorrect password' : 'Incorrect email or password'
+        });
+    }
+
+    User.deleteWithData(user.id);
+    return res.json({
+        success: true,
+        message: 'Your account and its personal data have been permanently deleted.'
+    });
+}
+
+// DELETE /api/auth/me — in-app deletion of the signed-in account
+router.delete('/me', authMiddleware, async (req, res) => {
+    try {
+        const user = User.findById(req.user.userId);
+        // 403, not 401: the session is valid, only the confirmation failed.
+        // (Clients treat 401 on a signed-in request as "session expired".)
+        await deleteAccountWithPassword(user, req.body?.password, res, { wrongPasswordStatus: 403 });
+    } catch (error) {
+        console.error('Account deletion error:', error);
+        res.status(500).json({ error: 'Failed to delete account' });
+    }
+});
+
+// POST /api/auth/delete-account — web deletion (from /delete-account), for
+// people who no longer have the app installed
+router.post('/delete-account', async (req, res) => {
+    try {
+        const { email, password } = req.body || {};
+        if (!isNonEmptyString(email)) {
+            return res.status(400).json({ error: 'Email and password are required' });
+        }
+        const user = User.findByEmail(email.trim().toLowerCase());
+        await deleteAccountWithPassword(user, password, res);
+    } catch (error) {
+        console.error('Web account deletion error:', error);
+        res.status(500).json({ error: 'Failed to delete account' });
+    }
+});
+
 // ==================== STAFF APPROVAL (role: admin) ====================
 
 // List hospital-staff signups waiting for approval

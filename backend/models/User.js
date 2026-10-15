@@ -1,4 +1,4 @@
-const { all, get, run } = require('./database');
+const { all, get, run, getDb, saveDatabase } = require('./database');
 const { v4: uuidv4 } = require('uuid');
 
 class User {
@@ -32,6 +32,37 @@ class User {
 
     static findByHospitalId(hospitalId) {
         return all('SELECT * FROM users WHERE hospital_id = ?', [hospitalId]);
+    }
+
+    /// Permanently delete an account and the personal data attached to it:
+    /// the user row, their patient/vital/report records, and their alerts
+    /// (with each hospital's copy of them). Payment rows are kept for
+    /// accounting but no longer link to anything personal once the alert is
+    /// gone. A staff member's email is removed from the alerts they answered.
+    static deleteWithData(id) {
+        const user = this.findById(id);
+        if (!user) return false;
+
+        const db = getDb();
+        db.run('BEGIN TRANSACTION');
+        try {
+            const alertIds = all('SELECT id FROM alerts WHERE user_id = ?', [id]).map((a) => a.id);
+            for (const alertId of alertIds) {
+                db.run('DELETE FROM alert_hospitals WHERE alert_id = ?', [alertId]);
+            }
+            db.run('DELETE FROM alerts WHERE user_id = ?', [id]);
+            db.run('DELETE FROM vitals WHERE user_id = ?', [id]);
+            db.run('DELETE FROM reports WHERE user_id = ?', [id]);
+            db.run('DELETE FROM patients WHERE user_id = ?', [id]);
+            db.run('UPDATE alert_hospitals SET responded_by = NULL WHERE responded_by = ?', [user.email]);
+            db.run('DELETE FROM users WHERE id = ?', [id]);
+            db.run('COMMIT');
+        } catch (error) {
+            db.run('ROLLBACK');
+            throw error;
+        }
+        saveDatabase();
+        return true;
     }
 
     static findPendingStaff() {

@@ -10,7 +10,7 @@ void main() {
 
     // Splash content
     expect(find.text('Élan'), findsOneWidget);
-    expect(find.text('EMERGENCY CARDIAC CARE'), findsOneWidget);
+    expect(find.text('Emergency cardiac care'), findsOneWidget);
     expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);
 
     // Let the splash timer finish so the test ends cleanly

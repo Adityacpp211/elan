@@ -20,8 +20,14 @@ const { app, initialize } = require('../server');
 let server = null;
 let baseUrl = '';
 
+// A real admin account: tokens are only honoured for users that exist.
+let adminUserId = null;
+
 async function start() {
     await initialize();
+    const User = require('../models/User');
+    const existing = User.findByEmail('admin@test.com');
+    adminUserId = (existing || User.create('Test Admin', 'admin@test.com', 'not-a-real-hash', { role: 'admin' })).id;
     server = app.listen(0);
     await new Promise(resolve => server.once('listening', resolve));
     baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -91,7 +97,7 @@ async function registerHospitalStaff(hospitalId, { approve = true, ...overrides 
 
 function adminToken() {
     return jwt.sign(
-        { userId: 'admin-test-user', email: 'admin@test.com', role: 'admin' },
+        { userId: adminUserId, email: 'admin@test.com', role: 'admin' },
         config.jwtSecret,
         { expiresIn: '1h' }
     );

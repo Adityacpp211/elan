@@ -12,6 +12,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
 import 'theme.dart';
 import 'services/api_service.dart';
+import 'services/connection_status.dart';
+import 'delete_account_screen.dart';
+import 'dispatch_tracker.dart';
+import 'services/phone_service.dart';
 import 'services/receiver_service.dart';
 
 // ==================== NAVIGATION HELPER ====================
@@ -84,27 +88,30 @@ class _AuthShell extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 12),
-                  const Center(child: BrandMark(size: 72)),
-                  const SizedBox(height: 22),
-                  EyebrowLabel(
-                    text: eyebrow,
-                    color: AppColors.brand,
-                    textAlign: TextAlign.center,
-                  ),
                   const SizedBox(height: 8),
+                  // Wordmark lockup; [eyebrow] is no longer shown.
+                  Row(
+                    children: [
+                      const BrandMark(size: 34),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Élan',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 36),
                   Text(
                     title,
-                    textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.displayMedium,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
                     subtitle,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: AppColors.textSecondary),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
                   child,
                   const SizedBox(height: 20),
                   const Center(child: ServerStatusPill()),
@@ -286,6 +293,7 @@ class _RoleToggleTab extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
+                    fontVariations: AppFonts.w700,
                     color: selected ? color : AppColors.textSecondary,
                   ),
                 ),
@@ -449,7 +457,7 @@ class _LoginScreenState extends State<LoginScreen> {
       title: 'Welcome back',
       subtitle: _hospitalMode
           ? 'Sign in to receive and respond to Élan alerts'
-          : 'Sign in to continue to your control centre',
+          : 'Sign in to send alerts and follow hospital responses',
       child: SurfaceCard(
         padding: const EdgeInsets.all(AppSpace.xl),
         child: Column(
@@ -836,30 +844,14 @@ class _DashboardState extends State<Dashboard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Status sits on the eyebrow line so the greeting
-                        // keeps the full width on phones.
-                        const Wrap(
-                          spacing: AppSpace.sm,
-                          runSpacing: AppSpace.xs,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            EyebrowLabel(text: 'Control centre'),
-                            ServerStatusPill(syncing: true),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
                         Text(
-                          _greeting,
+                          '$_greeting, ${displayName.split(' ').first}',
                           style: Theme.of(context).textTheme.headlineMedium,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        Text(
-                          displayName,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        const SizedBox(height: 6),
+                        const ServerStatusPill(syncing: true),
                       ],
                     ),
                   ),
@@ -867,17 +859,12 @@ class _DashboardState extends State<Dashboard> {
                   GestureDetector(
                     onTap: () => open(context, const UserProfileScreen()),
                     child: Container(
-                      width: 52,
-                      height: 52,
+                      width: 46,
+                      height: 46,
                       alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [Color(0xFF3A4AA8), Color(0xFF232C49)],
-                        ),
+                      decoration: const BoxDecoration(
+                        color: AppColors.textPrimary,
                         shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.hairline),
                       ),
                       child: Text(
                         _initials(displayName),
@@ -885,6 +872,7 @@ class _DashboardState extends State<Dashboard> {
                           fontFamily: AppFonts.display,
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
+                          fontVariations: AppFonts.w700,
                           color: Colors.white,
                         ),
                       ),
@@ -911,7 +899,7 @@ class _DashboardState extends State<Dashboard> {
                   const SizedBox(height: AppSpace.xxl),
                   SectionHeader(
                     eyebrow: 'Your toolkit',
-                    title: 'Modules',
+                    title: 'Your records',
                   ),
                   const SizedBox(height: AppSpace.lg),
                   GridView.count(
@@ -976,110 +964,102 @@ class _EmergencyHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpace.xl),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFFB72236),
-              const Color(0xFF6E1220),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.xl),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.brand.withValues(alpha: 0.35),
-              blurRadius: 30,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(Icons.sos_rounded,
-                      size: 26, color: Colors.white),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'EMERGENCY RESPONSE',
-                        style: TextStyle(
-                          fontSize: 11,
-                          letterSpacing: 1.6,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFFFE3E7),
+    return Material(
+      color: AppColors.brand,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpace.xl),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.sos_rounded, size: 34, color: Colors.white),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Send an emergency alert',
+                          style: TextStyle(
+                            fontSize: 20,
+                            height: 1.2,
+                            letterSpacing: -0.3,
+                            fontWeight: FontWeight.w800,
+                            fontVariations: AppFonts.w800,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'Emergency Mode',
-                        style: TextStyle(
-                          fontFamily: AppFonts.display,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                        SizedBox(height: 4),
+                        Text(
+                          'Nearby hospitals get your location and symptoms',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            height: 1.35,
+                            fontWeight: FontWeight.w500,
+                            fontVariations: AppFonts.w500,
+                            color: Color(0xFFFCE4E7),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'One tap alerts the closest care units',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.white.withValues(alpha: 0.75),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right_rounded, color: Colors.white),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Divider(color: Colors.white.withValues(alpha: 0.18), height: 1),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF7CF5C0),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Network ready · tap to launch',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFFFE3E7),
+                      ],
                     ),
                   ),
-                ),
-                const Icon(Icons.wifi_rounded,
-                    size: 16, color: Color(0xFF7CF5C0)),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 8),
+                  const Icon(Icons.arrow_forward_rounded, color: Colors.white),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // Live server reachability. This used to be a static
+              // "Network ready" that stayed green even when offline.
+              ValueListenableBuilder<ServerStatus>(
+                valueListenable: ConnectionStatus(),
+                builder: (context, status, _) {
+                  final text = switch (status) {
+                    ServerStatus.online => 'Hospital network reachable',
+                    ServerStatus.checking => 'Checking connection…',
+                    ServerStatus.offline =>
+                      'Server unreachable. For an emergency, call 112 now.',
+                  };
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          status == ServerStatus.offline
+                              ? Icons.cloud_off_rounded
+                              : Icons.cloud_done_outlined,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            text,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              fontVariations: AppFonts.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1351,7 +1331,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               style: Theme.of(dialogContext)
                   .textTheme
                   .bodyLarge
-                  ?.copyWith(fontWeight: FontWeight.w700),
+                  ?.copyWith(fontWeight: FontWeight.w700,fontVariations: AppFonts.w700,),
             ),
             if (reason != null && reason.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -1365,10 +1345,16 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             child: const Text('Close'),
           ),
           if (retryAlertId != null)
-            FilledButton(
+            TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Retry sending'),
             ),
+          FilledButton.icon(
+            onPressed: () =>
+                PhoneService.dial(context, PhoneService.emergencyNumber),
+            icon: const Icon(Icons.call_rounded, size: 18),
+            label: const Text('Call 112'),
+          ),
         ],
       ),
     );
@@ -1412,77 +1398,16 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     return hospitals is List ? hospitals.length : null;
   }
 
+  /// Sent: hand over to the live tracker, replacing this form so Back
+  /// returns to the dashboard rather than to a stale, already-sent alert.
   void _showDispatchSucceeded(String alertId, int hospitalsNotified) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.check_circle_rounded,
-            color: AppColors.success, size: 44),
-        title: const Text('Alerts dispatched'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Emergency alert sent to $hospitalsNotified '
-              '${hospitalsNotified == 1 ? 'hospital' : 'hospitals'} with your location. '
-              'Track who has responded and their ETA in Hospital Alerts. '
-              'If your condition worsens, call 112 or 108.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            SurfaceCard(
-              padding: const EdgeInsets.all(14),
-              radius: AppRadius.md,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Remaining credit',
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  Text(
-                    '₹${_walletBalance.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontFamily: AppFonts.display,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.success,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'ALERT ID  ${alertId.length > 8 ? alertId.substring(0, 8).toUpperCase() : alertId.toUpperCase()}',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: AppColors.textMuted, fontFamily: AppFonts.display),
-            ),
-          ],
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Done'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              open(this.context, const HospitalAlertScreen());
-            },
-            child: const Text('Track responses'),
-          ),
-        ],
+    HapticFeedback.mediumImpact();
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => DispatchTrackerScreen(
+        alertId: alertId,
+        hospitalsNotified: hospitalsNotified,
       ),
-    );
-
-    // Clear form
-    setState(() {
-      _selectedSymptoms.clear();
-      _messageController.clear();
-      _selectedCharge = 1;
-    });
+    ));
   }
 
   void _sendAlertToHospitals() async {
@@ -1503,7 +1428,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       return;
     }
 
-    int hospitalCount = _tierHospitalCount;
     String price = _tierInfo[_selectedCharge]!['price'] as String;
     double priceValue = _tierInfo[_selectedCharge]!['priceValue'] as double;
 
@@ -1518,120 +1442,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       return;
     }
 
-    // Show confirmation dialog
-    bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.sos_rounded, color: AppColors.brand, size: 24),
-            SizedBox(width: 10),
-            // Flexible so the title wraps instead of overflowing on phones
-            Flexible(child: Text('Confirm emergency alert')),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              hospitalCount == 1
-                  ? 'This will alert the nearest hospital with your location.'
-                  : 'This will alert up to $hospitalCount nearby hospitals with your location.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            SurfaceCard(
-              padding: const EdgeInsets.all(14),
-              radius: AppRadius.md,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('ALERT PLAN',
-                      style: Theme.of(context).textTheme.labelSmall),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Tier $_selectedCharge',
-                          style: Theme.of(context).textTheme.titleLarge),
-                      Text(
-                        price,
-                        style: const TextStyle(
-                          fontFamily: AppFonts.display,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.warning,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _tierInfo[_selectedCharge]!['desc'] as String,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Credit balance',
-                    style: Theme.of(context).textTheme.bodyMedium),
-                Text(
-                  '₹${_walletBalance.toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontFamily: AppFonts.display,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.success,
-                    fontSize: 17,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _selectedSymptoms
-                  .map((s) => Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.brand.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                              color: AppColors.brand.withValues(alpha: 0.35)),
-                        ),
-                        child: Text(
-                          s,
-                          style: const TextStyle(
-                              color: AppColors.brand,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ))
-                  .toList(),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(Icons.flash_on_rounded, size: 18),
-            label: Text('Pay $price'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
+    // No confirm dialog: the hold-to-send button is the confirmation.
 
     if (!mounted) return;
     setState(() => _isSendingAlert = true);
@@ -1873,7 +1684,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                           .labelMedium
                                           ?.copyWith(
                                               color: AppColors.textSecondary,
-                                              letterSpacing: 1.0),
+                                              letterSpacing: 0.2),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -1923,6 +1734,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                     fontFamily: AppFonts.display,
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
+                                    fontVariations: AppFonts.w600,
                                     color: AppColors.textPrimary,
                                   ),
                                 ),
@@ -2020,6 +1832,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                   fontFamily: AppFonts.display,
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.w700,
+                                  fontVariations: AppFonts.w700,
                                   color: AppColors.alert,
                                 ),
                               ),
@@ -2083,6 +1896,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                       : AppColors.textSecondary,
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.w700,
+                                fontVariations: AppFonts.w700,
                                 ),
                               ),
                             ],
@@ -2151,6 +1965,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                         fontFamily: AppFonts.display,
                                         fontSize: 24,
                                         fontWeight: FontWeight.w700,
+                                        fontVariations: AppFonts.w700,
                                         color: isSelected
                                             ? AppColors.textPrimary
                                             : AppColors.textSecondary,
@@ -2223,11 +2038,14 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                 color: AppColors.ink,
                 border: Border(top: BorderSide(color: AppColors.hairline)),
               ),
-              child: PrimaryButton(
-                label: 'Send Emergency Alert',
-                icon: Icons.sos_rounded,
+              child: HoldToSendButton(
+                label: 'Hold to send alert',
+                caption: '${_tierInfo[_selectedCharge]!['price']} · up to '
+                    '$_tierHospitalCount '
+                    '${_tierHospitalCount == 1 ? 'hospital' : 'hospitals'}',
                 loading: _isSendingAlert,
-                onPressed: _isSendingAlert ? null : _sendAlertToHospitals,
+                loadingLabel: 'Sending alert…',
+                onConfirmed: _isSendingAlert ? null : _sendAlertToHospitals,
               ),
             ),
           ],
@@ -2262,6 +2080,7 @@ class _WalletPill extends StatelessWidget {
               fontFamily: AppFonts.display,
               fontSize: 15,
               fontWeight: FontWeight.w700,
+              fontVariations: AppFonts.w700,
               color: AppColors.success,
             ),
           ),
@@ -2453,9 +2272,17 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
                       itemCount: alerts.length,
                       itemBuilder: (context, index) {
                         final dispatches = alerts[index];
+                        final dispatched = dispatches
+                            .any((d) => d.hospitalId.isNotEmpty);
                         return _AlertCard(
                           dispatches: dispatches,
                           time: _formatTime(dispatches.first.timestamp),
+                          onTap: dispatched
+                              ? () => open(
+                                  context,
+                                  DispatchTrackerScreen(
+                                      alertId: dispatches.first.alertId))
+                              : null,
                         );
                       },
                     ),
@@ -2470,9 +2297,13 @@ class _HospitalAlertScreenState extends State<HospitalAlertScreen> {
 /// One emergency: what was reported once, then each hospital it reached and
 /// how that hospital responded.
 class _AlertCard extends StatelessWidget {
-  const _AlertCard({required this.dispatches, required this.time});
+  const _AlertCard(
+      {required this.dispatches, required this.time, this.onTap});
   final List<HospitalAlert> dispatches;
   final String time;
+
+  /// Opens the live tracker for this alert.
+  final VoidCallback? onTap;
 
   HospitalAlert get _first => dispatches.first;
 
@@ -2518,6 +2349,7 @@ class _AlertCard extends StatelessWidget {
       radius: AppRadius.md,
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2579,6 +2411,7 @@ class _AlertCard extends StatelessWidget {
                             color: AppColors.brand,
                             fontSize: 11.5,
                             fontWeight: FontWeight.w700,
+                          fontVariations: AppFonts.w700,
                           ),
                         ),
                       ))
@@ -2672,6 +2505,7 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
   bool _pendingApproval = false;
   String? _error;
   Timer? _poll;
+  Timer? _tick;
 
   static const _pollInterval = Duration(seconds: 20);
 
@@ -2680,11 +2514,16 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
     super.initState();
     _bootstrap();
     _poll = Timer.periodic(_pollInterval, (_) => _refresh(silent: true));
+    // Keeps the "waiting N min" timers and urgency colours current.
+    _tick = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    _tick?.cancel();
     super.dispose();
   }
 
@@ -2749,9 +2588,20 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
     }
   }
 
-  List<ReceiverAlert> get _visibleAlerts => _filter == 'all'
-      ? _alerts
-      : _alerts.where((a) => a.status.name == _filter).toList();
+  /// Triage order: unanswered alerts first, longest-waiting at the top;
+  /// then everything already handled, newest first.
+  List<ReceiverAlert> get _visibleAlerts {
+    final list = _filter == 'all'
+        ? [..._alerts]
+        : _alerts.where((a) => a.status.name == _filter).toList();
+    list.sort((a, b) {
+      if (a.isPending != b.isPending) return a.isPending ? -1 : 1;
+      return a.isPending
+          ? a.createdAt.compareTo(b.createdAt)
+          : b.createdAt.compareTo(a.createdAt);
+    });
+    return list;
+  }
 
   String _relativeTime(DateTime time) {
     final diff = DateTime.now().difference(time);
@@ -2796,9 +2646,15 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
     );
   }
 
-  Future<void> _acknowledge(ReceiverAlert alert) async {
-    final choice = await _pickEta(context);
+  /// Accept [alert]. With [presetMinutes] (the ETA buttons on the card) it
+  /// is one tap; otherwise the ETA picker opens first.
+  Future<void> _acknowledge(ReceiverAlert alert,
+      {int? presetMinutes, bool skipPicker = false}) async {
+    final choice = skipPicker
+        ? (confirmed: true, minutes: presetMinutes)
+        : await _pickEta(context);
     if (choice == null || !mounted) return;
+    HapticFeedback.mediumImpact();
 
     final result =
         await _receiver.acknowledge(alert.id, etaMinutes: choice.minutes);
@@ -3015,6 +2871,10 @@ class _ReceiverConsoleState extends State<ReceiverConsole> {
                                       time: _relativeTime(alert.createdAt),
                                       onOpen: () => _openDetail(alert),
                                       onAcknowledge: () => _acknowledge(alert),
+                                      onAcceptWithEta: (minutes) =>
+                                          _acknowledge(alert,
+                                              presetMinutes: minutes,
+                                              skipPicker: true),
                                       onDecline: () => _decline(alert),
                                     );
                                   },
@@ -3082,6 +2942,7 @@ class _FilterChips extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w700,
+                fontVariations: AppFonts.w700,
                 color: isSelected ? color : AppColors.textSecondary,
               ),
             ),
@@ -3098,14 +2959,25 @@ class _ReceiverAlertCard extends StatelessWidget {
     required this.time,
     required this.onOpen,
     required this.onAcknowledge,
+    required this.onAcceptWithEta,
     required this.onDecline,
   });
 
   final ReceiverAlert alert;
   final String time;
   final VoidCallback onOpen;
+
+  /// Accept via the ETA picker (other estimate).
   final VoidCallback onAcknowledge;
+
+  /// One-tap accept with a preset ETA (null = no estimate).
+  final ValueChanged<int?> onAcceptWithEta;
   final VoidCallback onDecline;
+
+  static const _etaPresets = [5, 10, 15, 20];
+
+  /// Pending alerts turn from amber to red once they have waited this long.
+  static const _urgentAfter = Duration(minutes: 2);
 
   (String, Color) get _statusStyle => switch (alert.status) {
         ReceiverAlertStatus.acknowledged => ('Accepted', AppColors.success),
@@ -3116,130 +2988,244 @@ class _ReceiverAlertCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (statusLabel, statusColor) = _statusStyle;
+    final waited = DateTime.now().difference(alert.createdAt);
+    final urgent = alert.isPending && waited >= _urgentAfter;
 
-    return SurfaceCard(
-      radius: AppRadius.md,
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      onTap: onOpen,
-      borderColor:
-          alert.isPending ? AppColors.brand.withValues(alpha: 0.35) : null,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              IconTile(
-                icon: Icons.monitor_heart_rounded,
-                color: statusColor,
-                size: 42,
-                iconSize: 20,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(alert.patientName,
-                        style: Theme.of(context).textTheme.titleMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 2),
-                    Row(
+    // Left strip: how much attention this card needs right now
+    final stripColor = switch (alert.status) {
+      ReceiverAlertStatus.pending =>
+        urgent ? AppColors.brand : AppColors.warning,
+      ReceiverAlertStatus.acknowledged => AppColors.success,
+      ReceiverAlertStatus.declined => AppColors.hairline,
+    };
+
+    final waitedLabel = waited.inMinutes < 1
+        ? 'Waiting <1 min'
+        : 'Waiting ${waited.inMinutes} min';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          side: BorderSide(
+            color: alert.isPending
+                ? stripColor.withValues(alpha: 0.45)
+                : AppColors.hairline,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onOpen,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(width: 5, color: stripColor),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.schedule_rounded,
-                            size: 12, color: AppColors.textMuted),
-                        const SizedBox(width: 4),
-                        Text(time,
-                            style: Theme.of(context).textTheme.bodySmall),
-                        if (alert.distanceKm != null) ...[
-                          const SizedBox(width: 10),
-                          const Icon(Icons.near_me_rounded,
-                              size: 12, color: AppColors.textMuted),
-                          const SizedBox(width: 4),
-                          Text(formatDistance(alert.distanceKm!),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(alert.patientName,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.schedule_rounded,
+                                          size: 13,
+                                          color: alert.isPending
+                                              ? stripColor
+                                              : AppColors.textMuted),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        alert.isPending ? waitedLabel : time,
+                                        style: alert.isPending
+                                            ? Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: stripColor,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontVariations:
+                                                      AppFonts.w700,
+                                                )
+                                            : Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                      ),
+                                      if (alert.distanceKm != null) ...[
+                                        const SizedBox(width: 10),
+                                        const Icon(Icons.near_me_rounded,
+                                            size: 12,
+                                            color: AppColors.textMuted),
+                                        const SizedBox(width: 4),
+                                        Text(formatDistance(alert.distanceKm!),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            StatusBadge(label: statusLabel, color: statusColor),
+                          ],
+                        ),
+                        if (alert.symptoms.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: alert.symptoms
+                                .map((s) => Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surfaceRaised,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        s,
+                                        style: const TextStyle(
+                                          color: AppColors.textPrimary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          fontVariations: AppFonts.w600,
+                                        ),
+                                      ),
+                                    ))
+                                .toList(),
+                          ),
+                        ],
+                        // The patient's own words are often the most useful
+                        // triage detail, so show them on the card.
+                        if (alert.message.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            '“${alert.message}”',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: AppColors.textPrimary),
+                          ),
+                        ],
+                        if (alert.status == ReceiverAlertStatus.acknowledged &&
+                            alert.etaMinutes != null) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              const Icon(Icons.directions_car_rounded,
+                                  size: 14, color: AppColors.success),
+                              const SizedBox(width: 6),
+                              Text('Team en route · ~${alert.etaMinutes} min',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: AppColors.success)),
+                            ],
+                          ),
+                        ],
+                        if (alert.status == ReceiverAlertStatus.declined &&
+                            alert.declineReason != null) ...[
+                          const SizedBox(height: 12),
+                          Text(alert.declineReason!,
                               style: Theme.of(context).textTheme.bodySmall),
+                        ],
+                        if (alert.isPending) ...[
+                          const SizedBox(height: 16),
+                          Text('Accept · team arrives in',
+                              style: Theme.of(context).textTheme.bodySmall),
+                          const SizedBox(height: 8),
+                          // One tap accepts and tells the patient the ETA
+                          Row(
+                            children: [
+                              for (var i = 0; i < _etaPresets.length; i++) ...[
+                                if (i > 0) const SizedBox(width: 8),
+                                Expanded(
+                                  child: _EtaButton(
+                                    minutes: _etaPresets[i],
+                                    onPressed: () =>
+                                        onAcceptWithEta(_etaPresets[i]),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              TextButton.icon(
+                                onPressed: onDecline,
+                                icon: const Icon(
+                                    Icons.do_not_disturb_on_outlined,
+                                    size: 18),
+                                label: const Text('Pass'),
+                                style: TextButton.styleFrom(
+                                    foregroundColor: AppColors.textSecondary),
+                              ),
+                              const Spacer(),
+                              TextButton(
+                                onPressed: onAcknowledge,
+                                style: TextButton.styleFrom(
+                                    foregroundColor: AppColors.success),
+                                child: const Text('Other time…'),
+                              ),
+                            ],
+                          ),
                         ],
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              StatusBadge(label: statusLabel, color: statusColor),
-            ],
+              ],
+            ),
           ),
-          if (alert.symptoms.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: alert.symptoms
-                  .map((s) => Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.brand.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          s,
-                          style: const TextStyle(
-                            color: AppColors.brand,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ))
-                  .toList(),
-            ),
-          ],
-          if (alert.status == ReceiverAlertStatus.acknowledged &&
-              alert.etaMinutes != null) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Icon(Icons.directions_car_rounded,
-                    size: 14, color: AppColors.success),
-                const SizedBox(width: 6),
-                Text('Team en route · ~${alert.etaMinutes} min',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: AppColors.success)),
-              ],
-            ),
-          ],
-          if (alert.status == ReceiverAlertStatus.declined &&
-              alert.declineReason != null) ...[
-            const SizedBox(height: 12),
-            Text(alert.declineReason!,
-                style: Theme.of(context).textTheme.bodySmall),
-          ],
-          if (alert.isPending) ...[
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TonalButton(
-                    label: 'Pass',
-                    icon: Icons.do_not_disturb_on_rounded,
-                    color: AppColors.textSecondary,
-                    onPressed: onDecline,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: PrimaryButton(
-                    label: 'Accept',
-                    icon: Icons.check_rounded,
-                    color: AppColors.success,
-                    onPressed: onAcknowledge,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Green ETA button on a pending receiver card.
+class _EtaButton extends StatelessWidget {
+  const _EtaButton({required this.minutes, required this.onPressed});
+  final int minutes;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 46,
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.success,
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(0, 46),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.sm)),
+        ),
+        child: Text('$minutes min',
+            style: const TextStyle(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w800,
+                fontVariations: AppFonts.w800)),
       ),
     );
   }
@@ -3358,6 +3344,7 @@ class _ReceiverAlertDetailScreenState extends State<ReceiverAlertDetailScreen> {
                                           color: AppColors.brand,
                                           fontSize: 11.5,
                                           fontWeight: FontWeight.w700,
+                                        fontVariations: AppFonts.w700,
                                         ),
                                       ),
                                     ))
@@ -3705,8 +3692,15 @@ class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
                               TonalButton(
                                 label: 'Log out',
                                 icon: Icons.logout_rounded,
-                                color: AppColors.brand,
+                                color: AppColors.textSecondary,
                                 onPressed: _logout,
+                              ),
+                              const SizedBox(height: AppSpace.sm),
+                              // Required by Google Play for apps with sign-up
+                              TextButton(
+                                onPressed: () => open(context, const DeleteAccountScreen()),
+                                style: TextButton.styleFrom(foregroundColor: AppColors.brand),
+                                child: const Text('Delete account'),
                               ),
                             ],
                           ),
@@ -3997,21 +3991,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           width: 96,
                           height: 96,
                           alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [Color(0xFF3A4AA8), Color(0xFF232C49)],
-                            ),
+                          decoration: const BoxDecoration(
+                            color: AppColors.textPrimary,
                             shape: BoxShape.circle,
-                            border:
-                                Border.all(color: AppColors.hairline, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.alert.withValues(alpha: 0.25),
-                                blurRadius: 24,
-                              ),
-                            ],
                           ),
                           child: Text(
                             _initials(user?.name),
@@ -4019,6 +4001,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               fontFamily: AppFonts.display,
                               fontSize: 34,
                               fontWeight: FontWeight.w700,
+                              fontVariations: AppFonts.w700,
                               color: Colors.white.withValues(alpha: 0.95),
                             ),
                           ),
@@ -4095,7 +4078,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         TonalButton(
                           label: 'Edit profile',
                           icon: Icons.edit_rounded,
-                          color: AppColors.brand,
+                          color: AppColors.textPrimary,
                           onPressed: _openEditForm,
                         ),
 
@@ -4104,8 +4087,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         TonalButton(
                           label: 'Log out',
                           icon: Icons.logout_rounded,
-                          color: AppColors.brand,
+                          color: AppColors.textSecondary,
                           onPressed: _confirmAndLogout,
+                        ),
+                        const SizedBox(height: AppSpace.sm),
+                        // Required by Google Play for apps with sign-up
+                        TextButton(
+                          onPressed: () => open(context, const DeleteAccountScreen()),
+                          style: TextButton.styleFrom(foregroundColor: AppColors.brand),
+                          child: const Text('Delete account'),
                         ),
                       ],
                     ),
@@ -4444,6 +4434,7 @@ class _VitalsCard extends StatelessWidget {
                 fontFamily: AppFonts.display,
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
+                fontVariations: AppFonts.w700,
                 color: color,
               ),
             ),
@@ -4685,6 +4676,7 @@ class _RecordedValueText extends StatelessWidget {
           fontFamily: AppFonts.display,
           fontSize: 20,
           fontWeight: FontWeight.w700,
+          fontVariations: AppFonts.w700,
           color: color,
         ),
         children: [
@@ -4695,6 +4687,7 @@ class _RecordedValueText extends StatelessWidget {
               fontFamily: AppFonts.body,
               fontSize: 12,
               fontWeight: FontWeight.w500,
+              fontVariations: AppFonts.w500,
               color: AppColors.textMuted,
             ),
           ),
@@ -5114,6 +5107,7 @@ class _PatientCard extends StatelessWidget {
                       color: color,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
+                    fontVariations: AppFonts.w700,
                     ),
                   ),
                 ),
@@ -5206,6 +5200,7 @@ class PatientDetailScreen extends StatelessWidget {
                                 color: color,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
+                              fontVariations: AppFonts.w700,
                               ),
                             ),
                           ),

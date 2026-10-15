@@ -610,6 +610,19 @@ class AuthService {
     _currentLoggedInUser = user;
   }
 
+  /// Permanently delete the account on the server, then clear everything
+  /// stored on this device. Returns null on success or an error message.
+  Future<String?> deleteAccount(String password) async {
+    if (password.isEmpty) return 'Enter your password to confirm';
+    final response = await _api.deleteAccount(password);
+    if (response.isNetworkError) return _offlineMessage;
+    if (!response.success) return response.error ?? 'Could not delete your account';
+    await logout();
+    // Nothing of the deleted account stays on the device.
+    await _prefs.remove('walletBalance');
+    return null;
+  }
+
   // Logout user
   Future<void> logout() async {
     _currentLoggedInUser = null;
@@ -663,10 +676,22 @@ class LocationService {
       }
 
       try {
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 15),
-        );
+        Position position;
+        try {
+          position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+            timeLimit: const Duration(seconds: 10),
+          );
+        } catch (_) {
+          // Google's fused provider fails when its "Location Accuracy"
+          // prompt is declined or Play Services is missing. Android's own
+          // GPS LocationManager needs neither, so try it before giving up.
+          position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+            forceAndroidLocationManager: true,
+            timeLimit: const Duration(seconds: 10),
+          );
+        }
         return LocationResult.success(LocationData(
           latitude: position.latitude,
           longitude: position.longitude,

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delete your Élan account</title>
+  <meta name="robots" content="noindex">
+  <style>
+    :root {
+      --paper: #F4F2ED; --card: #FFFFFF; --line: #DDD8CF;
+      --ink: #16181D; --ink-2: #474C57; --muted: #6B707A;
+      --red: #C8102E; --red-soft: #FBE9EB; --green: #1C7A47; --green-soft: #E6F2EB;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--paper); color: var(--ink);
+      font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 520px; margin: 0 auto; padding: 40px 20px 64px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; }
+    .mark { width: 32px; height: 32px; border-radius: 7px; background: var(--red);
+            display: grid; place-items: center; color: #fff; font-size: 18px; }
+    h1 { font-size: 28px; line-height: 1.15; letter-spacing: -0.5px; margin: 32px 0 8px; }
+    p.lead { color: var(--ink-2); margin: 0 0 24px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    .card h2 { font-size: 16px; margin: 0 0 8px; }
+    ul { margin: 0; padding-left: 20px; color: var(--ink-2); }
+    li { margin: 4px 0; }
+    label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
+    input[type=email], input[type=password] {
+      width: 100%; padding: 13px 14px; font: inherit; color: var(--ink);
+      background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    }
+    input:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+    .confirm { display: flex; gap: 10px; align-items: flex-start; margin: 18px 0; font-size: 14px; color: var(--ink-2); }
+    .confirm input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--red); }
+    button {
+      width: 100%; padding: 15px; font: inherit; font-weight: 700; color: #fff;
+      background: var(--red); border: 0; border-radius: 8px; cursor: pointer;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .msg { border-radius: 8px; padding: 12px 14px; margin-top: 16px; font-size: 14px; display: none; }
+    .msg.error { display: block; background: var(--red-soft); color: var(--red); }
+    .msg.ok { display: block; background: var(--green-soft); color: var(--green); }
+    .note { color: var(--muted); font-size: 13px; margin-top: 24px; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand"><span class="mark" aria-hidden="true">♥</span> Élan</div>
+
+  <h1>Delete your Élan account</h1>
+  <p class="lead">You can also do this in the app: <strong>Profile → Delete account</strong>.
+    Use this page if you no longer have the app installed.</p>
+
+  <div class="card">
+    <h2>What is deleted, permanently</h2>
+    <ul>
+      <li>Your account: name, email, phone number and password</li>
+      <li>Your emergency alerts, including symptoms, messages and locations, and each hospital's copy of them</li>
+      <li>Your saved location and notification token</li>
+      <li>Any patient, vital-sign and report records you created</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>What is kept</h2>
+    <ul>
+      <li>Payment transaction records (amount, date, payment ID), kept for accounting and tax
+        obligations. They are no longer linked to your name, email or alerts.</li>
+    </ul>
+  </div>
+
+  <form id="form" class="card" novalidate>
+    <h2>Confirm it's you</h2>
+    <label for="email">Account email</label>
+    <input id="email" type="email" autocomplete="email" required>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+
+    <div class="confirm">
+      <input id="ack" type="checkbox">
+      <label for="ack" style="margin:0;font-weight:500">I understand this cannot be undone.</label>
+    </div>
+
+    <button id="submit" type="submit" disabled>Delete my account</button>
+    <div id="msg" class="msg" role="status" aria-live="polite"></div>
+  </form>
+
+  <p class="note">Deletion happens immediately. If you forgot your password, contact the
+    Élan support address listed in the Play Store and we will verify your identity another way.</p>
+</main>
+
+<script>
+  const form = document.getElementById('form');
+  const email = document.getElementById('email');
+  const password = document.getElementById('password');
+  const ack = document.getElementById('ack');
+  const submit = document.getElementById('submit');
+  const msg = document.getElementById('msg');
+
+  const refresh = () => {
+    submit.disabled = !(ack.checked && email.value.trim() && password.value);
+  };
+  [email, password, ack].forEach((el) => el.addEventListener('input', refresh));
+  ack.addEventListener('change', refresh);
+
+  const show = (text, kind) => { msg.textContent = text; msg.className = 'msg ' + kind; };
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    submit.textContent = 'Deleting…';
+    try {
+      const res = await fetch('/api/auth/delete-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.value.trim(), password: password.value })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        form.querySelectorAll('input').forEach((el) => { el.disabled = true; });
+        submit.textContent = 'Account deleted';
+        show(data.message || 'Your account has been deleted.', 'ok');
+        return;
+      }
+      show(data.error || 'Could not delete the account. Please try again.', 'error');
+    } catch (_) {
+      show('Could not reach the server. Check your connection and try again.', 'error');
+    }
+    submit.textContent = 'Delete my account';
+    refresh();
+  });
+</script>
+</body>
+</html>

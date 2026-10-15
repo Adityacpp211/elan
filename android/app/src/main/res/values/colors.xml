@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Élan signal red (matches AppColors.brand) -->
+    <color name="elan_red">#C8102E</color>
+</resources>

@@ -91,7 +91,7 @@ class ApiService {
         'GET' => http.get(uri, headers: headers),
         'POST' => http.post(uri, headers: headers, body: encoded),
         'PUT' => http.put(uri, headers: headers, body: encoded),
-        'DELETE' => http.delete(uri, headers: headers),
+        'DELETE' => http.delete(uri, headers: headers, body: encoded),
         _ => throw ArgumentError('Unsupported method $method'),
       };
       response = await call.timeout(timeout);
@@ -138,6 +138,15 @@ class ApiService {
       auth: true, fallbackError: 'Failed to fetch profile');
 
   /// Update current user profile (name / phone)
+  /// Permanently delete the signed-in account. The server re-checks
+  /// [password]; a wrong one comes back as 403 (not 401), so it is reported
+  /// to the user instead of being treated as an expired session.
+  Future<ApiResponse> deleteAccount(String password) =>
+      _request('DELETE', '/api/auth/me',
+          auth: true,
+          body: {'password': password},
+          fallbackError: 'Could not delete your account');
+
   Future<ApiResponse> updateProfile({String? name, String? phone}) =>
       _request('PUT', '/api/auth/me',
           auth: true,
