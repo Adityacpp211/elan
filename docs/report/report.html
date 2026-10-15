@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Élan — Project Report</title>
+<meta name="author" content="Aditya Satwar">
+<meta name="description" content="A plain-language report on Élan, an emergency cardiac alert app.">
+<style>
+  @font-face {
+    font-family: "Manrope";
+    src: url("../../assets/fonts/Manrope.ttf") format("truetype");
+    font-weight: 200 800;
+  }
+  :root {
+    --ink: #0B2E47;
+    --text: #3D5468;
+    --muted: #5E7285;
+    --primary: #0A6AAE;
+    --primary-soft: #E5F1F9;
+    --emergency: #C8102E;
+    --emergency-soft: #FBE9EB;
+    --success: #127A5A;
+    --success-soft: #E4F3EC;
+    --warning: #9A5B00;
+    --warning-soft: #FBF1E2;
+    --bg: #F4F8FB;
+    --line: #D6E1EA;
+    --surface: #FFFFFF;
+  }
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body {
+    font-family: "Manrope", "Segoe UI", sans-serif;
+    font-weight: 500;
+    color: var(--text);
+    font-size: 10.6pt;
+    line-height: 1.55;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 210mm;
+    height: 297mm;
+    padding: 20mm 20mm 18mm;
+    position: relative;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+  }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .footer {
+    position: absolute;
+    left: 20mm; right: 20mm; bottom: 10mm;
+    display: flex; justify-content: space-between;
+    font-size: 8pt; color: var(--muted);
+    border-top: 1px solid var(--line);
+    padding-top: 3mm;
+  }
+  h1, h2, h3 { color: var(--ink); margin: 0; font-weight: 800; letter-spacing: -0.01em; }
+  h2 { font-size: 21pt; line-height: 1.15; margin-bottom: 2mm; }
+  h3 { font-size: 12pt; margin: 5mm 0 1.5mm; font-weight: 700; }
+  p { margin: 0 0 3mm; }
+  strong { color: var(--ink); font-weight: 700; }
+  .eyebrow {
+    font-size: 8.5pt; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--primary); margin-bottom: 2mm;
+  }
+  .lead { font-size: 12pt; color: var(--ink); font-weight: 500; margin-bottom: 5mm; }
+  ul { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1.2mm; }
+
+  /* ---------- Cover ---------- */
+  .cover { padding: 0; background: var(--bg); }
+  .cover .band {
+    height: 8mm;
+    background: linear-gradient(90deg, #0A6AAE 0%, #1C7F95 55%, #3BAA7A 100%);
+  }
+  .cover .inner { padding: 34mm 22mm 0; }
+  .cover img.logo { width: 46mm; height: 46mm; object-fit: contain; display: block; }
+  .cover h1 { font-size: 54pt; line-height: 1; margin-top: 10mm; }
+  .cover .subtitle { font-size: 17pt; color: var(--ink); font-weight: 600; margin-top: 4mm; }
+  .cover .tag { font-size: 12pt; color: var(--text); margin-top: 4mm; max-width: 140mm; }
+  .cover .meta {
+    position: absolute; left: 22mm; right: 22mm; bottom: 26mm;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm;
+    border-top: 1px solid var(--line); padding-top: 6mm;
+  }
+  .cover .meta .k { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 700; }
+  .cover .meta .v { font-size: 12.5pt; color: var(--ink); font-weight: 700; margin-top: 1mm; }
+  .cover .note {
+    margin-top: 16mm; max-width: 150mm;
+    background: var(--emergency-soft); color: #7A0A1C;
+    border-radius: 3mm; padding: 4mm 5mm; font-size: 9.5pt;
+  }
+
+  /* ---------- Shared blocks ---------- */
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 3mm; padding: 4.5mm 5mm;
+  }
+  .soft { background: var(--bg); border: 1px solid var(--line); border-radius: 3mm; padding: 4.5mm 5mm; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .pill {
+    display: inline-block; font-size: 8pt; font-weight: 700;
+    padding: 0.6mm 2.5mm; border-radius: 10mm;
+    background: var(--primary-soft); color: var(--primary);
+  }
+  .pill.red { background: var(--emergency-soft); color: var(--emergency); }
+  .pill.green { background: var(--success-soft); color: var(--success); }
+  .pill.amber { background: var(--warning-soft); color: var(--warning); }
+  .callout {
+    border-left: 1.2mm solid var(--emergency);
+    background: var(--emergency-soft);
+    padding: 3.5mm 5mm; border-radius: 0 3mm 3mm 0;
+    color: #6B0A1A; margin: 4mm 0;
+  }
+  .callout.blue { border-color: var(--primary); background: var(--primary-soft); color: var(--ink); }
+  .callout.green { border-color: var(--success); background: var(--success-soft); color: #0B4A36; }
+
+  /* ---------- Contents ---------- */
+  .toc { margin-top: 4mm; }
+  .toc .row {
+    display: flex; align-items: baseline; gap: 3mm;
+    padding: 2.4mm 0; border-bottom: 1px solid var(--line);
+    color: var(--ink); font-weight: 600;
+  }
+  .toc .num { width: 8mm; color: var(--primary); font-weight: 800; }
+  .toc .dots { flex: 1; }
+  .toc .pg { color: var(--muted); font-weight: 600; }
+
+  .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin: 5mm 0 2mm; }
+  .fact { background: var(--bg); border: 1px solid var(--line); border-radius: 3mm; padding: 3.5mm; }
+  .fact .big { font-size: 19pt; font-weight: 800; color: var(--ink); line-height: 1.1; }
+  .fact .small { font-size: 8.5pt; color: var(--text); margin-top: 1mm; line-height: 1.35; }
+
+  /* ---------- Flow ---------- */
+  .flow { display: grid; gap: 2.6mm; margin-top: 4mm; }
+  .step {
+    display: grid; grid-template-columns: 11mm 1fr 34mm; gap: 4mm; align-items: center;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 3mm;
+    padding: 3.2mm 4mm;
+  }
+  .step .n {
+    width: 11mm; height: 11mm; border-radius: 50%;
+    background: var(--primary); color: #fff; font-weight: 800; font-size: 12pt;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step.red .n { background: var(--emergency); }
+  .step.green .n { background: var(--success); }
+  .step .t { font-weight: 700; color: var(--ink); font-size: 11pt; }
+  .step .d { font-size: 9.4pt; line-height: 1.45; }
+  .step .who { text-align: right; }
+
+  /* ---------- Screens ---------- */
+  .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; margin-top: 5mm; }
+  .shot .frame {
+    border: 1.6mm solid #0E2233; border-radius: 6mm; overflow: hidden;
+    aspect-ratio: 1063 / 2324; background: #fff;
+    box-shadow: 0 1.5mm 4mm rgba(11, 46, 71, 0.15);
+  }
+  /* Trim the phone status bar and the emulator's edge so only the app shows */
+  .shot .frame img { display: block; width: 101.6%; margin: -6.6% -0.8% 0; }
+  .shot .cap { margin-top: 3mm; font-size: 9pt; line-height: 1.45; }
+  .shot .cap b { display: block; color: var(--ink); font-size: 10pt; margin-bottom: 0.6mm; }
+
+  /* ---------- Tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 9.3pt; margin-top: 3mm; }
+  th {
+    text-align: left; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 700; padding: 2mm 2.5mm; border-bottom: 1.5px solid var(--ink);
+  }
+  td { padding: 2.4mm 2.5mm; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.45; }
+  td:first-child { color: var(--ink); font-weight: 700; }
+
+  /* ---------- Architecture ---------- */
+  .arch { display: grid; grid-template-columns: 1fr 14mm 1fr 14mm 1fr; align-items: center; margin: 6mm 0 3mm; }
+  .node { border-radius: 3mm; padding: 4mm; text-align: center; border: 1px solid var(--line); background: var(--surface); min-height: 38mm; }
+  .node .ic { font-size: 18pt; }
+  .node .h { font-weight: 800; color: var(--ink); font-size: 11pt; margin: 1mm 0; }
+  .node .s { font-size: 8.6pt; line-height: 1.4; }
+  .node.server { background: var(--primary-soft); border-color: #B9D6EC; }
+  .arrow { text-align: center; color: var(--primary); font-size: 16pt; font-weight: 800; }
+  .arrow small { display: block; font-size: 7pt; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; }
+
+  .feature { display: grid; grid-template-columns: 10mm 1fr; gap: 3.5mm; align-items: start; }
+  .feature .ic {
+    width: 10mm; height: 10mm; border-radius: 2.5mm; background: var(--primary-soft); color: var(--primary);
+    display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 11pt;
+  }
+  .feature.red .ic { background: var(--emergency-soft); color: var(--emergency); }
+  .feature.green .ic { background: var(--success-soft); color: var(--success); }
+  .feature .t { font-weight: 700; color: var(--ink); font-size: 10.5pt; }
+  .feature .d { font-size: 9.3pt; line-height: 1.45; }
+
+  .checklist li { list-style: none; margin-left: -5mm; padding-left: 7mm; position: relative; }
+  .checklist li::before { position: absolute; left: 0; font-weight: 800; }
+  .checklist.done li::before { content: "✓"; color: var(--success); }
+  .checklist.todo li::before { content: "○"; color: var(--warning); }
+  .checklist.later li::before { content: "→"; color: var(--primary); }
+
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; margin-top: 9mm; }
+  .note-item { background: var(--bg); border: 1px solid var(--line); border-left: 1.2mm solid var(--primary); border-radius: 0 3mm 3mm 0; padding: 4mm 5mm; }
+  .note-item .t { font-weight: 800; color: var(--ink); font-size: 10.5pt; margin-bottom: 1mm; }
+  .note-item .d { font-size: 9.3pt; line-height: 1.5; }
+  .gloss { display: grid; grid-template-columns: 38mm 1fr; gap: 0; font-size: 9.5pt; }
+  .gloss div { padding: 2.3mm 0; border-bottom: 1px solid var(--line); }
+  .gloss .term { color: var(--ink); font-weight: 700; padding-right: 4mm; }
+</style>
+</head>
+<body>
+
+<!-- ================= 1. COVER ================= -->
+<section class="page cover">
+  <div class="band"></div>
+  <div class="inner">
+    <img class="logo" src="img/logo.png" alt="Élan logo">
+    <h1>Élan</h1>
+    <div class="subtitle">Emergency Cardiac Alert App — Project Report</div>
+    <div class="tag">A plain-language guide to what the app does, who it is for, how it works, and how it keeps people safe. No technical background needed.</div>
+    <div class="note"><strong style="color:#7A0A1C">Important:</strong> Élan helps people reach nearby hospitals faster during a heart emergency. It does <strong style="color:#7A0A1C">not</strong> replace calling 112 (or 108 for an ambulance).</div>
+  </div>
+  <div class="meta">
+    <div><div class="k">Author</div><div class="v">Aditya Satwar</div></div>
+    <div><div class="k">Date</div><div class="v">15 October 2026</div></div>
+    <div><div class="k">App version</div><div class="v">1.0.0 (Android)</div></div>
+  </div>
+</section>
+
+<!-- ================= 2. AT A GLANCE + CONTENTS ================= -->
+<section class="page">
+  <div class="eyebrow">Summary</div>
+  <h2>Élan at a glance</h2>
+  <p class="lead">Élan is a mobile app that lets a person in a cardiac emergency alert the nearest hospitals with one long press. The hospitals instantly see who needs help, where they are and what they are feeling. When a hospital accepts, the person sees that help is coming and roughly when it will arrive.</p>
+
+  <div class="facts">
+    <div class="fact"><div class="big">1 press</div><div class="small">Hold the SOS button for 1.5 seconds to send an alert</div></div>
+    <div class="fact"><div class="big">3</div><div class="small">nearest hospitals are alerted at the same time</div></div>
+    <div class="fact"><div class="big">₹0</div><div class="small">Sending an alert is free; no payment step</div></div>
+    <div class="fact"><div class="big">2 sides</div><div class="small">One app for patients and for hospital duty staff</div></div>
+  </div>
+
+  <p>The name <strong>Élan</strong> (said <em>ay-LAHN</em>) is French for "spirit" or "momentum". It reflects the idea at the heart of the app: in a heart emergency, every minute counts, so the app is built to remove delay.</p>
+
+  <h3 style="margin-top:7mm">Contents</h3>
+  <div class="toc">
+    <div class="row"><span class="num">1</span><span class="dots">The problem and the idea</span><span class="pg">3</span></div>
+    <div class="row"><span class="num">2</span><span class="dots">How an alert works, step by step</span><span class="pg">4</span></div>
+    <div class="row"><span class="num">3</span><span class="dots">A tour of the app (with real screenshots)</span><span class="pg">5</span></div>
+    <div class="row"><span class="num">4</span><span class="dots">Safety by design</span><span class="pg">9</span></div>
+    <div class="row"><span class="num">5</span><span class="dots">Your data and privacy</span><span class="pg">10</span></div>
+    <div class="row"><span class="num">6</span><span class="dots">Behind the scenes: how the parts fit together</span><span class="pg">11</span></div>
+    <div class="row"><span class="num">7</span><span class="dots">Testing, current status and next steps</span><span class="pg">12</span></div>
+    <div class="row"><span class="num">8</span><span class="dots">Glossary of terms</span><span class="pg">13</span></div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>2</span></div>
+</section>
+
+<!-- ================= 3. PROBLEM & IDEA ================= -->
+<section class="page">
+  <div class="eyebrow">Section 1</div>
+  <h2>The problem and the idea</h2>
+
+  <h3>The problem</h3>
+  <p>During a heart attack, the time between the first symptoms and proper treatment matters a great deal. Yet in that moment, people often lose precious minutes:</p>
+  <ul>
+    <li>They are not sure which hospital is closest, or which one can take them.</li>
+    <li>They phone hospitals one by one, repeating the same details each time.</li>
+    <li>The hospital usually learns about the patient only when the patient walks through the door, with no time to prepare.</li>
+    <li>While waiting, the patient has no idea whether anyone is coming.</li>
+  </ul>
+
+  <h3>The idea</h3>
+  <p>Élan turns this around. With a single long press, the app sends the person's <strong>exact location</strong>, their <strong>symptoms</strong> and an optional <strong>short message</strong> to the nearest hospitals <strong>all at once</strong>. Hospital staff see the alert on their own screen, can accept it with one tap, and tell the patient how many minutes until their team arrives. The patient watches all of this happen live.</p>
+
+  <div class="callout blue"><strong>In one sentence:</strong> Élan is a "panic button" for heart emergencies that connects a patient directly to the duty desks of nearby hospitals, and shows the patient that help is on the way.</div>
+
+  <h3>Who uses Élan</h3>
+  <div class="grid2" style="margin-top:3mm">
+    <div class="card">
+      <span class="pill red">Members</span>
+      <p style="margin-top:2.5mm"><strong>Patients, family members and carers.</strong> They create an account, and in an emergency they open the app, pick symptoms and hold the SOS button.</p>
+      <p style="margin:0">They can also keep simple health records: patient details, vital signs (heart rate, blood pressure, temperature, oxygen level) and medical reports.</p>
+    </div>
+    <div class="card">
+      <span class="pill green">Hospital staff</span>
+      <p style="margin-top:2.5mm"><strong>Duty staff at a hospital's emergency desk.</strong> They sign in on the "Hospital staff" tab and land on a <em>triage desk</em>: a live list of incoming alerts.</p>
+      <p style="margin:0">They accept an alert and choose an arrival time, or pass it to other hospitals. New staff accounts must be approved by an administrator first.</p>
+    </div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>3</span></div>
+</section>
+
+<!-- ================= 4. HOW AN ALERT WORKS ================= -->
+<section class="page">
+  <div class="eyebrow">Section 2</div>
+  <h2>How an alert works, step by step</h2>
+  <p class="lead">Here is the journey of one alert, from the moment someone feels unwell to the moment help is on the way.</p>
+
+  <div class="flow">
+    <div class="step red">
+      <div class="n">1</div>
+      <div><div class="t">Open the Emergency screen</div><div class="d">From the home screen, the patient taps the big red "Send an emergency alert" card. The app finds their location using the phone's GPS.</div></div>
+      <div class="who"><span class="pill red">Patient</span></div>
+    </div>
+    <div class="step red">
+      <div class="n">2</div>
+      <div><div class="t">See nearby hospitals</div><div class="d">The app lists hospitals within about 15 km, closest first, with their distance and phone number.</div></div>
+      <div class="who"><span class="pill red">Patient</span></div>
+    </div>
+    <div class="step red">
+      <div class="n">3</div>
+      <div><div class="t">Pick symptoms and hold to send</div><div class="d">The patient taps what they feel (for example "Chest Pain") and can type a short message. Then they press and hold the SOS button for 1.5 seconds. Holding, rather than tapping, prevents accidental alerts.</div></div>
+      <div class="who"><span class="pill red">Patient</span></div>
+    </div>
+    <div class="step">
+      <div class="n">4</div>
+      <div><div class="t">The 3 nearest hospitals are alerted</div><div class="d">Élan's server checks that hospitals are in range and delivers the alert to the three closest ones at the same time. It is free; there is no payment step.</div></div>
+      <div class="who"><span class="pill">Élan server</span></div>
+    </div>
+    <div class="step green">
+      <div class="n">5</div>
+      <div><div class="t">A hospital accepts</div><div class="d">The alert appears on each hospital's triage desk with the patient's name, symptoms, distance and a waiting timer. A staff member taps "5", "10", "15" or "20 min" to accept and say when their team will arrive.</div></div>
+      <div class="who"><span class="pill green">Hospital</span></div>
+    </div>
+    <div class="step green">
+      <div class="n">6</div>
+      <div><div class="t">The patient sees "Help is on the way"</div><div class="d">The patient's screen updates by itself: which hospital accepted, a countdown to arrival, and one-tap buttons to call that hospital or 112.</div></div>
+      <div class="who"><span class="pill green">Patient</span></div>
+    </div>
+  </div>
+
+  <div class="callout"><strong style="color:#6B0A1A">If something goes wrong, the app says so.</strong> If there is no GPS signal, no internet, or no hospital in range, Élan stops and tells the patient clearly that the alert was <em>not</em> sent. It never guesses a location or pretends an alert went through. The 112 button is always one tap away.</div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>4</span></div>
+</section>
+
+<!-- ================= 5. TOUR: GETTING STARTED ================= -->
+<section class="page">
+  <div class="eyebrow">Section 3 · App tour</div>
+  <h2>Getting started</h2>
+  <p>All screenshots in this tour are from the real app running on an Android phone emulator, using test accounts and test hospitals.</p>
+
+  <div class="shots">
+    <div class="shot">
+      <div class="frame"><img src="img/01-launch.png" alt="Launch screen"></div>
+      <div class="cap"><b>Launch screen</b>A clean white screen with the Élan logo. It lasts about a second; in an emergency nobody should wait on a logo.</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/02-safety-notice.png" alt="Safety notice"></div>
+      <div class="cap"><b>Safety notice (first launch)</b>Before anything else, the app explains in plain words what it can and cannot do, and offers a "Call 112 now" button.</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/03-sign-in.png" alt="Sign in"></div>
+      <div class="cap"><b>Sign in</b>One screen for both kinds of user: "Member" or "Hospital staff". There is a "Forgot password?" link and a live "Server online" indicator.</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note-item"><div class="t">Why a safety notice first?</div><div class="d">People must understand that Élan works <strong>alongside</strong> emergency services, not instead of them. The notice appears once, before the very first sign-in, and is required reading for a health app on Google Play.</div></div>
+    <div class="note-item"><div class="t">Two kinds of account</div><div class="d">The same app serves patients and hospitals. Choosing "Hospital staff" at sign-in opens the hospital's triage desk instead of the patient home screen.</div></div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>5</span></div>
+</section>
+
+<!-- ================= 6. TOUR: HOME & EMERGENCY ================= -->
+<section class="page">
+  <div class="eyebrow">Section 3 · App tour</div>
+  <h2>Home and the Emergency screen</h2>
+  <p>The home screen puts the emergency button first. Everything else, such as records, comes after.</p>
+
+  <div class="shots">
+    <div class="shot">
+      <div class="frame"><img src="img/04-home.png" alt="Home screen"></div>
+      <div class="cap"><b>Home</b>A greeting, a connection status badge, the red SOS card, and shortcuts to alerts, patients, vital-sign monitoring and reports.</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/05-emergency.png" alt="Emergency screen"></div>
+      <div class="cap"><b>Emergency</b>A red 112 button at the top, a reminder to call 112 first, the patient's live position, and nearby hospitals sorted by distance.</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/06-symptoms.png" alt="Symptoms and send"></div>
+      <div class="cap"><b>Symptoms and send</b>Tap symptoms, add a message if able, then press and hold "Hold to send alert". Letting go early cancels.</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note-item"><div class="t">Why hold instead of tap?</div><div class="d">A tap can happen by accident: in a pocket, or by a child. Holding for 1.5 seconds is quick for someone who means it, but very hard to do by mistake. The button fills up as it is held, and letting go early cancels.</div></div>
+    <div class="note-item"><div class="t">What if no hospital is nearby?</div><div class="d">The Emergency screen shows "No hospitals found nearby" and the alert is not sent, so nobody waits for a reply that cannot come. The 112 button stays at the top of the screen.</div></div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>6</span></div>
+</section>
+
+<!-- ================= 7. TOUR: AFTER SENDING ================= -->
+<section class="page">
+  <div class="eyebrow">Section 3 · App tour</div>
+  <h2>From alert to "help is on the way"</h2>
+  <p>This is the same alert seen from both sides: the patient's phone and the hospital's duty desk.</p>
+
+  <div class="shots">
+    <div class="shot">
+      <div class="frame"><img src="img/07-waiting.png" alt="Waiting for a hospital"></div>
+      <div class="cap"><b>Patient: alert sent</b>A running timer and a simple timeline: sent, delivered to 3 hospitals, waiting for one to accept. Each hospital can be called with one tap.</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/08-hospital-desk.png" alt="Hospital triage desk"></div>
+      <div class="cap"><b>Hospital: triage desk</b>Unanswered alerts are listed first. The waiting time turns red after 2 minutes. Staff accept with an arrival time, or pass.</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/10-help-coming.png" alt="Help is on the way"></div>
+      <div class="cap"><b>Patient: help is coming</b>Once a hospital accepts, the patient sees which hospital, a countdown to arrival, and the expected time.</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note-item"><div class="t">What the hospital sees</div><div class="d">The patient's name, symptoms, message, distance and exact location, plus how long the patient has been waiting. Staff choose an arrival time, or "Other time…" for anything else.</div></div>
+    <div class="note-item"><div class="t">No refreshing needed</div><div class="d">The patient's screen checks for news every few seconds and updates by itself, so they can keep their attention on the person who is unwell.</div></div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>7</span></div>
+</section>
+
+<!-- ================= 8. TOUR: HISTORY & ACCOUNT ================= -->
+<section class="page">
+  <div class="eyebrow">Section 3 · App tour</div>
+  <h2>Hospital response, history and account</h2>
+  <p>Both sides keep a record of what happened, and members stay in control of their account.</p>
+
+  <div class="shots">
+    <div class="shot">
+      <div class="frame"><img src="img/09-accepted.png" alt="Alert accepted"></div>
+      <div class="cap"><b>Hospital: accepted</b>The desk confirms the patient was told to expect the team in about 10 minutes, and the alert moves to "Accepted".</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/11-alert-history.png" alt="Alert history"></div>
+      <div class="cap"><b>Patient: alert history</b>Every alert sent, with each hospital's reply: "Awaiting reply" or "Coming · 10 min".</div>
+    </div>
+    <div class="shot">
+      <div class="frame"><img src="img/12-reset-password.png" alt="Reset password"></div>
+      <div class="cap"><b>Forgot password</b>A 6-digit code is emailed to the user. It works for 15 minutes, and setting a new password signs out all other devices.</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note-item"><div class="t">One alert, several hospitals</div><div class="d">All three hospitals see the same alert. The first to accept is shown to the patient as "coming"; the others can still respond or pass.</div></div>
+    <div class="note-item"><div class="t">Locked out? Not for long</div><div class="d">If a password is forgotten, the reset code arrives by email. For safety, the reply never reveals whether an email address has an account, and the code stops working after 15 minutes or 5 wrong tries.</div></div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>8</span></div>
+</section>
+
+<!-- ================= 9. SAFETY ================= -->
+<section class="page">
+  <div class="eyebrow">Section 4</div>
+  <h2>Safety by design</h2>
+  <p class="lead">An emergency app must be honest about its limits and hard to misuse. These choices are built into Élan.</p>
+
+  <div class="grid2" style="gap:5mm 6mm">
+    <div class="feature red"><div class="ic">112</div><div><div class="t">Never a replacement for 112</div><div class="d">The first-launch notice, the Emergency screen and the alert status screen all point to 112, with a one-tap call button.</div></div></div>
+    <div class="feature red"><div class="ic">✋</div><div><div class="t">Hold to send, not tap</div><div class="d">The SOS button must be held for 1.5 seconds. A pocket tap or a slip of the finger does not send an alert.</div></div></div>
+    <div class="feature"><div class="ic">📍</div><div><div class="t">Real location only</div><div class="d">If the phone cannot get a GPS fix, the app stops and says so. It never sends a guessed or default location.</div></div></div>
+    <div class="feature"><div class="ic">!</div><div><div class="t">Honest when offline</div><div class="d">Without a connection, the app clearly says an alert was <strong>not</strong> sent, instead of pretending it was.</div></div></div>
+    <div class="feature green"><div class="ic">✓</div><div><div class="t">Approved hospital staff only</div><div class="d">Staff can see patients' names, phone numbers and locations, so a new staff account stays locked until an administrator approves it.</div></div></div>
+    <div class="feature green"><div class="ic">⏱</div><div><div class="t">Urgency is visible</div><div class="d">On the hospital desk, unanswered alerts come first and their waiting timer turns red after 2 minutes.</div></div></div>
+    <div class="feature"><div class="ic">🔒</div><div><div class="t">Protected accounts</div><div class="d">Passwords are stored scrambled (hashed) so nobody can read them, and repeated sign-in attempts are slowed down to stop guessing.</div></div></div>
+    <div class="feature"><div class="ic">₹</div><div><div class="t">No payment in an emergency</div><div class="d">Alerts are free, so nobody has to deal with a payment screen while in distress.</div></div></div>
+  </div>
+
+  <div class="soft" style="margin-top:8mm">
+    <div class="eyebrow" style="margin-bottom:1.5mm">An example of Élan in use</div>
+    <p style="margin:0">A 58-year-old man feels a crushing pain in his chest at home. His daughter calls 112, and while she waits she opens Élan, taps "Chest Pain" and holds the SOS button. Within seconds, three hospitals nearby see his location and symptoms. One of them accepts and answers "10 min". Her screen now reads "Help is on the way", with a countdown and a button to call that hospital directly. The hospital's team knows what to expect before they arrive. <em>(Illustrative example.)</em></p>
+  </div>
+
+  <div class="callout blue" style="margin-top:5mm"><strong>What Élan is not:</strong> it does not diagnose, treat or give medical advice, and it cannot guarantee that a hospital will respond or how quickly help will arrive. Hospitals decide whether they can take a patient.</div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>9</span></div>
+</section>
+
+<!-- ================= 10. PRIVACY ================= -->
+<section class="page">
+  <div class="eyebrow">Section 5</div>
+  <h2>Your data and privacy</h2>
+  <p class="lead">Élan collects only what it needs to get help to someone, and shares it only with the hospitals that person alerts.</p>
+
+  <table>
+    <thead><tr><th style="width:30%">What</th><th style="width:38%">Why it is needed</th><th>Who can see it</th></tr></thead>
+    <tbody>
+      <tr><td>Name and email</td><td>To create the account, sign in and reset a forgotten password.</td><td>The user. The name is shown to hospitals they alert.</td></tr>
+      <tr><td>Phone number (optional)</td><td>So a hospital can call the patient back.</td><td>Hospitals the user alerts.</td></tr>
+      <tr><td>Precise location</td><td>So hospitals know where to go. Read only on the Emergency screen.</td><td>Shared only when an alert is sent, and only with those hospitals.</td></tr>
+      <tr><td>Symptoms and message</td><td>So hospitals can prepare before arriving.</td><td>Hospitals the user alerts.</td></tr>
+      <tr><td>Health records (optional)</td><td>Patients, vital signs and reports the user chooses to keep.</td><td>Only the user.</td></tr>
+      <tr><td>Alert history</td><td>So the user can see what happened and who replied.</td><td>The user, and the hospitals involved.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:7mm">Controls the user has</h3>
+  <div class="grid3" style="margin-top:2mm">
+    <div class="soft"><strong>Delete account</strong><p style="margin:1.5mm 0 0;font-size:9.3pt">From the Profile screen in the app, or from a web page on the Élan server. This removes the account together with its alerts and records.</p></div>
+    <div class="soft"><strong>Reset password</strong><p style="margin:1.5mm 0 0;font-size:9.3pt">A code is sent by email. Changing the password signs the account out everywhere else, which helps if a phone is lost.</p></div>
+    <div class="soft"><strong>Read the policy</strong><p style="margin:1.5mm 0 0;font-size:9.3pt">A full privacy policy is linked from the safety notice, the sign-in screen and the profile. It explains retention and the user's rights.</p></div>
+  </div>
+
+  <p style="margin-top:6mm">No advertising and no tracking or analytics tools are built into the app. Élan does not sell or share data for marketing.</p>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>10</span></div>
+</section>
+
+<!-- ================= 11. BEHIND THE SCENES ================= -->
+<section class="page">
+  <div class="eyebrow">Section 6</div>
+  <h2>Behind the scenes</h2>
+  <p class="lead">Élan has three parts that talk to each other over the internet. A simple way to picture it: the app is the <em>phone line</em>, the server is the <em>switchboard</em>, and the hospital desk is the <em>receiver</em>.</p>
+
+  <div class="arch">
+    <div class="node"><div class="ic">📱</div><div class="h">Patient app</div><div class="s">Finds the location, collects symptoms, sends the alert and shows live progress.</div></div>
+    <div class="arrow">⇄<small>internet</small></div>
+    <div class="node server"><div class="ic">🖥️</div><div class="h">Élan server</div><div class="s">Stores accounts and alerts, finds the nearest hospitals, delivers the alert and passes back replies.</div></div>
+    <div class="arrow">⇄<small>internet</small></div>
+    <div class="node"><div class="ic">🏥</div><div class="h">Hospital desk</div><div class="s">The same app in "Hospital staff" mode: shows incoming alerts and sends back "accepted, 10 min".</div></div>
+  </div>
+
+  <p>The server can also email hospitals the alert details with a map link, once email is set up. The patient's screen checks for updates every few seconds, so a hospital's reply appears without the patient doing anything.</p>
+
+  <h3 style="margin-top:6mm">For technical readers</h3>
+  <table>
+    <thead><tr><th style="width:28%">Part</th><th>Built with</th></tr></thead>
+    <tbody>
+      <tr><td>Mobile app</td><td>Flutter 3.38 (Dart), one code base for Android and iOS; custom light theme with the Manrope typeface</td></tr>
+      <tr><td>Server (backend)</td><td>Node.js with Express; REST API returning JSON</td></tr>
+      <tr><td>Database</td><td>SQLite (via sql.js), saved to a file on the server</td></tr>
+      <tr><td>Sign-in and security</td><td>JWT session tokens, bcrypt password hashing, rate limiting on sign-in and reset, input validation</td></tr>
+      <tr><td>Notifications</td><td>Email via Nodemailer (SMTP); Firebase Cloud Messaging push support</td></tr>
+      <tr><td>Payments</td><td>Razorpay support exists but is switched off; alerts are free in version 1</td></tr>
+      <tr><td>Phone features</td><td>GPS through the geolocator package; dialling and opening links through a small native Android/iOS bridge</td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>11</span></div>
+</section>
+
+<!-- ================= 12. TESTING, STATUS, NEXT ================= -->
+<section class="page">
+  <div class="eyebrow">Section 7</div>
+  <h2>Testing, current status and next steps</h2>
+
+  <h3>How the app was tested</h3>
+  <div class="facts" style="grid-template-columns: repeat(3, 1fr); margin-top:2mm">
+    <div class="fact"><div class="big">72</div><div class="small">automated server tests (sign-in, alerts, hospital replies, deletion, password reset, free alerts) all passing</div></div>
+    <div class="fact"><div class="big">18</div><div class="small">automated app tests (launch, safety notice, sign-in, hold-to-send, hospital desk) all passing</div></div>
+    <div class="fact"><div class="big">End to end</div><div class="small">full alert journey run by hand on an Android emulator, from both the patient and hospital side</div></div>
+  </div>
+
+  <div class="grid2" style="margin-top:5mm; gap:6mm">
+    <div>
+      <h3 style="margin-top:0">Done for version 1</h3>
+      <ul class="checklist done">
+        <li>Hold-to-send SOS with live location and symptoms</li>
+        <li>Live alert tracker with arrival countdown</li>
+        <li>Hospital triage desk with one-tap accept</li>
+        <li>Free alerts (no payment step)</li>
+        <li>Safety notice and standing 112 button</li>
+        <li>Privacy policy page</li>
+        <li>Account deletion, in app and on the web</li>
+        <li>Password reset by emailed code</li>
+        <li>Staff approval before seeing patient data</li>
+        <li>New brand, logo and launch screen</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="margin-top:0">Before the Play Store launch</h3>
+      <ul class="checklist todo">
+        <li>Host the server online with a secure (HTTPS) address</li>
+        <li>Connect an email service so reset codes and hospital emails are delivered</li>
+        <li>Set the official support email address</li>
+        <li>Fill in Google Play's Data safety and Health app forms (answers are already drafted)</li>
+        <li>Have the privacy policy and medical wording reviewed by a qualified person</li>
+        <li>Onboard real hospitals and approve their staff accounts</li>
+      </ul>
+      <h3>Ideas for the future</h3>
+      <ul class="checklist later">
+        <li>Live ambulance position and route on a map</li>
+        <li>More languages, starting with Hindi</li>
+        <li>Instant push notifications on the hospital desk</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>12</span></div>
+</section>
+
+<!-- ================= 13. GLOSSARY ================= -->
+<section class="page">
+  <div class="eyebrow">Section 8</div>
+  <h2>Glossary of terms</h2>
+  <p class="lead">Short explanations of words used in this report.</p>
+
+  <div class="gloss">
+    <div class="term">Alert</div><div>A request for help sent from the app to nearby hospitals, with location and symptoms.</div>
+    <div class="term">112 / 108</div><div>India's national emergency number (112) and ambulance number (108). Élan always points users to these first.</div>
+    <div class="term">GPS</div><div>The satellite system a phone uses to work out exactly where it is.</div>
+    <div class="term">Server (backend)</div><div>A computer on the internet that stores accounts and alerts and passes messages between patients and hospitals.</div>
+    <div class="term">Triage desk</div><div>The hospital-side screen where duty staff see incoming alerts, most urgent first, and decide how to respond.</div>
+    <div class="term">ETA</div><div>"Estimated time of arrival": how many minutes until the hospital's team is expected to reach the patient.</div>
+    <div class="term">Hold to send</div><div>The SOS button only sends after being held down for 1.5 seconds, which prevents accidental alerts.</div>
+    <div class="term">HTTPS</div><div>A secure, encrypted way of sending data over the internet, so nobody in between can read it.</div>
+    <div class="term">Hashing</div><div>Scrambling a password one way before storing it, so even the server's owners cannot read it.</div>
+    <div class="term">Emulator</div><div>A virtual phone running on a computer, used to test the app.</div>
+    <div class="term">Play Console</div><div>Google's website for publishing apps on the Google Play Store.</div>
+    <div class="term">Data safety form</div><div>A form on the Play Console where developers declare what data an app collects and shares.</div>
+  </div>
+
+  <div class="card" style="margin-top:10mm; display:flex; gap:5mm; align-items:center">
+    <img src="img/logo.png" alt="" style="width:16mm;height:16mm;object-fit:contain">
+    <div>
+      <div style="color:var(--ink);font-weight:800;font-size:12pt">Élan — Emergency cardiac care</div>
+      <div style="font-size:9.5pt">Report prepared by <strong>Aditya Satwar</strong> · 15 October 2026</div>
+    </div>
+  </div>
+
+  <div class="footer"><span>Élan — Project Report · Aditya Satwar</span><span>13</span></div>
+</section>
+
+</body>
+</html>

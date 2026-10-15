@@ -30,9 +30,8 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 
 - **Hold-to-send SOS** — Press and hold for 1.5 s to send symptoms and your live GPS location. Holding guards against accidental alerts without a confirm dialog slowing you down.
 - **Live dispatch tracker** — After sending, follow the alert from "sent" to "help is on the way": a running timer, a timeline, the accepting hospital's ETA countdown, and one-tap calls to hospitals or 112.
-- **Tiered response** — Choose how wide the net goes: 1, 3, or up to 10 nearby hospitals notified per alert.
 - **Location-aware hospitals** — GPS-driven search surfaces verified hospitals ranked by distance, backed by a live hospital database on the backend.
-- **Free alerts** — Sending an alert costs nothing and needs no payment step (`ALERTS_FREE`, on by default). Paid tiers through Razorpay remain available behind `ALERTS_FREE=false`; check Google Play's billing policy before enabling them in a Play build.
+- **Free alerts** — Every alert goes to the 3 nearest hospitals at no cost, with no payment step (`ALERTS_FREE`, on by default). Paid tiers through Razorpay remain available behind `ALERTS_FREE=false`; check Google Play's billing policy before enabling them in a Play build.
 - **Account recovery and control** — Forgot-password reset by emailed 6-digit code (signs out every other session), and account deletion in the app or on the web.
 - **Safety and privacy** — A first-launch notice that Élan does not replace 112, a standing 112 button on the Emergency screen, and a privacy policy served at `/privacy`.
 - **Hospital triage desk** — A console for hospital staff: unanswered alerts first, a live "waiting" timer that turns red after 2 minutes, the patient's own message, and one-tap accept with an arrival estimate (5/10/15/20 min) the patient sees immediately.
@@ -42,7 +41,7 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 - **Medical reports** — Store and review report documents per patient.
 - **Honest offline behaviour** — A previous session still opens offline, and the receiver console shows its last cached inbox. Alerts and records always need the server, and the app says clearly when an alert was **not** sent instead of pretending.
 - **Live server status** — On-device connectivity indicator that pings the backend and shows online/synced or offline/local.
-- **Dark-first design system** — A crafted dark UI with a custom design language (Space Grotesk + Manrope, material-you inspired tokens).
+- **Clinical light design** — A calm light theme built from the Élan logo's blues and greens, set in Manrope, with red reserved for SOS and critical states.
 
 ---
 
@@ -65,9 +64,9 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 
 **Flow of an emergency:**
 
-1. User taps **Send Alert** and picks a response tier.
+1. User opens the **Emergency** screen, picks symptoms and holds the SOS button for 1.5 s.
 2. The app resolves the user's real GPS location. If no fix is available it stops and says so; it never substitutes a default location.
-3. The backend confirms at least one hospital is in range, then creates a payment order and verifies it.
+3. The backend confirms at least one hospital is in range and records the alert for the 3 nearest (free; no payment step).
 4. Notified hospitals receive an **FCM push** and an **email** with symptoms, exact coordinates, and a Google Maps deep link.
 5. Duty staff open the **receiver console** and accept the alert, optionally giving an arrival estimate.
 6. The patient is notified of the acceptance and the ETA, and can watch the alert move to `acknowledged` in their history.
@@ -78,10 +77,10 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 
 | Layer      | Technology |
 |------------|------------|
-| Mobile     | Flutter / Dart — custom dark theme, geolocation, offline cache |
+| Mobile     | Flutter / Dart — custom light theme, geolocation, offline cache |
 | Backend    | Node.js / Express — JWT auth, role-based access, rate limiting |
 | Database   | SQLite (`sql.js`) — persistent, file-based, test-isolated |
-| Payments   | Razorpay — real gateway + in-app wallet |
+| Payments   | None in v1 (alerts are free); Razorpay support kept behind `ALERTS_FREE=false` |
 | Notifications | Firebase Cloud Messaging (push) + Nodemailer (email) |
 | Security   | bcrypt password hashing, JWT, helmet-style hardening, input validation |
 
@@ -190,7 +189,8 @@ seeded demo desk is pre-approved.
 ```
 ├── android/               # Android platform config (bundle: com.elan.elan)
 ├── ios/                   # iOS platform config
-├── assets/fonts/          # Space Grotesk + Manrope (brand typography)
+├── assets/brand/          # Élan logo mark
+├── assets/fonts/          # Manrope (brand typography)
 ├── backend/
 │   ├── config/            # App config & env parsing
 │   ├── models/            # SQLite schema + data access
@@ -203,6 +203,7 @@ seeded demo desk is pre-approved.
 │   ├── models.dart        # Data models + local service layer
 │   ├── screens.dart       # All screens & flows
 │   └── services/          # API client, receiver sync, connectivity monitoring
+├── docs/                  # Play Console guide, project report (PDF)
 └── test/                  # Widget tests
 ```
 
@@ -218,8 +219,9 @@ Full API reference and deployment notes: [`backend/README.md`](backend/README.md
 
 ## Roadmap
 
-- [x] Core SOS alert network with tiered hospital dispatch
-- [x] Payments (wallet + Razorpay) and alert history
+- [x] Core SOS alert network dispatching to the nearest hospitals
+- [x] Free alerts and alert history (Razorpay kept behind a flag)
+- [x] Privacy policy, account deletion, password reset, safety notice
 - [x] Patient records, vitals monitoring, and medical reports
 - [x] Hospital-side receiver app with live acknowledgement feed
 - [ ] Real-time ambulance ETA & route tracking
