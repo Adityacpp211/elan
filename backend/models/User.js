@@ -54,6 +54,7 @@ class User {
             db.run('DELETE FROM vitals WHERE user_id = ?', [id]);
             db.run('DELETE FROM reports WHERE user_id = ?', [id]);
             db.run('DELETE FROM patients WHERE user_id = ?', [id]);
+            db.run('DELETE FROM password_resets WHERE user_id = ?', [id]);
             db.run('UPDATE alert_hospitals SET responded_by = NULL WHERE responded_by = ?', [user.email]);
             db.run('DELETE FROM users WHERE id = ?', [id]);
             db.run('COMMIT');
@@ -63,6 +64,15 @@ class User {
         }
         saveDatabase();
         return true;
+    }
+
+    /// Set a new password and record when, so sessions from before the
+    /// change are rejected.
+    static updatePassword(id, passwordHash) {
+        run('UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?',
+            [passwordHash, new Date().toISOString(), id]);
+        run('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL', [id]);
+        return this.findById(id);
     }
 
     static findPendingStaff() {

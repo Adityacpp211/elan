@@ -2,12 +2,19 @@ require('dotenv').config();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Alerts are free unless explicitly switched to paid (ALERTS_FREE=false).
+// Paid alerts go through Razorpay; see README before enabling them for a
+// Play Store build (Google may require Play Billing instead).
+const alertsFree = process.env.ALERTS_FREE !== 'false';
+
 // Settings that are safe to default in development but must never silently
-// fall back in production: a guessable JWT secret lets anyone mint tokens, and
-// without Razorpay keys the payment service would accept every payment.
+// fall back in production: a guessable JWT secret lets anyone mint tokens;
+// paid alerts without Razorpay keys would accept every payment; and the
+// privacy policy must name a real contact address.
 if (isProduction) {
-  const missing = ['JWT_SECRET', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET']
-    .filter((name) => !process.env[name]);
+  const required = ['JWT_SECRET', 'SUPPORT_EMAIL'];
+  if (!alertsFree) required.push('RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET');
+  const missing = required.filter((name) => !process.env[name]);
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables for production: ${missing.join(', ')}`);
   }
@@ -15,6 +22,15 @@ if (isProduction) {
 
 module.exports = {
   isProduction,
+  alertsFree,
+  // Free alerts go to this many nearest hospitals (tier 2 = up to 3)
+  freeAlertTier: 2,
+
+  // Shown in the privacy policy and on the account-deletion page
+  supportEmail: process.env.SUPPORT_EMAIL || '',
+  organizationName: process.env.ORGANIZATION_NAME || 'Élan',
+  privacyEffectiveDate: process.env.PRIVACY_EFFECTIVE_DATE || '15 October 2026',
+
   port: process.env.PORT || 3000,
   jwtSecret: process.env.JWT_SECRET || 'elan-dev-secret-key',
   

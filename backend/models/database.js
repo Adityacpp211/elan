@@ -156,6 +156,24 @@ async function initializeDatabase() {
   if (!userColumns.some((c) => c.name === 'hospital_id')) {
     db.run('ALTER TABLE users ADD COLUMN hospital_id TEXT');
   }
+  if (!userColumns.some((c) => c.name === 'password_changed_at')) {
+    // Tokens issued before this moment are rejected (see middleware/auth.js)
+    db.run('ALTER TABLE users ADD COLUMN password_changed_at TEXT');
+  }
+
+  // One-time password-reset codes (stored hashed, short-lived)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      used_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   if (!userColumns.some((c) => c.name === 'approved')) {
     // Accounts that predate approval keep their access; new hospital-staff
     // signups are inserted unapproved (see routes/auth.js).

@@ -5,15 +5,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
 import 'theme.dart';
 import 'services/api_service.dart';
 import 'services/connection_status.dart';
 import 'delete_account_screen.dart';
+import 'forgot_password_screen.dart';
 import 'dispatch_tracker.dart';
 import 'services/phone_service.dart';
 import 'services/receiver_service.dart';
@@ -112,6 +111,31 @@ class _AuthShell extends StatelessWidget {
                   child,
                   const SizedBox(height: 20),
                   const Center(child: ServerStatusPill()),
+                  const SizedBox(height: 8),
+                  // Play requires the privacy policy to be reachable in-app
+                  Center(
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        Text('By continuing you agree to the',
+                            style: Theme.of(context).textTheme.bodySmall),
+                        TextButton(
+                          onPressed: () => PhoneService.openUrl(
+                              context, ApiService.privacyPolicyUrl),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            minimumSize: const Size(0, 36),
+                            textStyle: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                fontVariations: AppFonts.w700),
+                          ),
+                          child: const Text('Privacy Policy'),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 4),
                 ],
               ),
@@ -411,40 +435,13 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (_) => const ReceiverConsole()),
       );
     } else {
-      _requestLocationAndNavigate();
+      // No location request here: location is only read on the Emergency
+      // screen, where the user can see why (privacy policy, Play policy).
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const Dashboard()),
+      );
     }
-  }
-
-  Future<void> _requestLocationAndNavigate() async {
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission != LocationPermission.deniedForever) {
-        try {
-          final position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high,
-          );
-          final api = ApiService();
-          await api.updateLocation(
-            latitude: position.latitude,
-            longitude: position.longitude,
-          );
-        } catch (e) {
-          debugPrint('Location error: $e');
-        }
-      }
-    } catch (e) {
-      debugPrint('Permission error: $e');
-    }
-
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const Dashboard()),
-    );
   }
 
   @override
@@ -484,6 +481,28 @@ class _LoginScreenState extends State<LoginScreen> {
               onSubmitted: (_) {
                 if (!_isLoading) _handleLogin();
               },
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () async {
+                  final email = await openForResult<String>(
+                    context,
+                    ForgotPasswordScreen(
+                        initialEmail: _emailController.text.trim()),
+                  );
+                  // Back from a successful reset: email filled, password
+                  // cleared, ready to sign in with the new one.
+                  if (email != null && mounted) {
+                    setState(() {
+                      _emailController.text = email;
+                      _passwordController.clear();
+                      _errorMessage = null;
+                    });
+                  }
+                },
+                child: const Text('Forgot password?'),
+              ),
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 16),
@@ -756,7 +775,6 @@ class Dashboard extends StatefulWidget {
 
 class _DashboardState extends State<Dashboard> {
   final _api = ApiService();
-  double _wallet = 5000.0;
 
   // Record counts from the server; null until loaded (or when offline).
   int? _alertCount;
@@ -767,7 +785,6 @@ class _DashboardState extends State<Dashboard> {
   @override
   void initState() {
     super.initState();
-    _loadWallet();
     _syncProfile();
     _loadCounts();
   }
@@ -798,12 +815,6 @@ class _DashboardState extends State<Dashboard> {
   String _countLabel(int? count, String singular, String plural) {
     if (count == null) return 'Open $plural';
     return '$count ${count == 1 ? singular : plural}';
-  }
-
-  Future<void> _loadWallet() async {
-    final prefs = await SharedPreferences.getInstance();
-    final balance = prefs.getDouble('walletBalance') ?? 5000.0;
-    if (mounted) setState(() => _wallet = balance);
   }
 
   Future<void> _syncProfile() async {
@@ -889,7 +900,6 @@ class _DashboardState extends State<Dashboard> {
                   ),
                   const SizedBox(height: AppSpace.lg),
                   _StatsCard(
-                    credit: _wallet,
                     hospitalCount: hospitalCount,
                     alertsSent: alertsSent,
                   ),
@@ -1065,12 +1075,10 @@ class _EmergencyHeroCard extends StatelessWidget {
 
 class _StatsCard extends StatelessWidget {
   const _StatsCard({
-    required this.credit,
     required this.hospitalCount,
     required this.alertsSent,
   });
 
-  final double credit;
   final int hospitalCount;
   final int alertsSent;
 
@@ -1088,13 +1096,6 @@ class _StatsCard extends StatelessWidget {
           vertical: AppSpace.lg, horizontal: AppSpace.xs),
       child: Row(
         children: [
-          cell(StatValue(
-            label: 'Credit',
-            value: '₹${credit.toStringAsFixed(0)}',
-            color: AppColors.success,
-            icon: Icons.account_balance_wallet_rounded,
-          )),
-          Container(width: 1, height: 40, color: AppColors.hairline),
           cell(StatValue(
             label: 'Care units',
             value: '$hospitalCount',
@@ -1180,7 +1181,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   final _db = DatabaseService();
   final _locationService = LocationService();
   final _api = ApiService();
-  late SharedPreferences _prefs;
 
   final Set<String> _selectedSymptoms = {};
   final TextEditingController _messageController = TextEditingController();
@@ -1191,10 +1191,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   List<HospitalLocation> _localHospitals = []; // Offline preview only
   bool _isLoadingLocation = false;
   bool _isSendingAlert = false;
-  int _selectedCharge = 1; // Tier 1, 2, or 3
-
-  double _walletBalance = 5000.0;
-
   final List<String> _symptomsList = [
     'Chest Pain',
     'Shortness of Breath',
@@ -1205,28 +1201,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     'Nausea/Vomiting',
     'Irregular Heartbeat',
   ];
-
-  // Tier descriptions with actual price values
-  final Map<int, Map<String, dynamic>> _tierInfo = {
-    1: {
-      'price': '₹1',
-      'priceValue': 1.0,
-      'hospitals': 1,
-      'desc': 'Nearest hospital',
-    },
-    2: {
-      'price': '₹2',
-      'priceValue': 2.0,
-      'hospitals': 3,
-      'desc': 'Top 3 nearby hospitals',
-    },
-    3: {
-      'price': '₹3',
-      'priceValue': 3.0,
-      'hospitals': 10,
-      'desc': 'All nearby hospitals',
-    },
-  };
 
   List<Map<String, dynamic>> get _displayHospitals {
     if (_nearbyHospitals.isNotEmpty) return _nearbyHospitals;
@@ -1240,8 +1214,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         .toList();
   }
 
-  int get _tierHospitalCount => _tierInfo[_selectedCharge]!['hospitals'] as int;
-
   @override
   void initState() {
     super.initState();
@@ -1249,17 +1221,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   }
 
   Future<void> _initializeData() async {
-    _prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _walletBalance = _prefs.getDouble('walletBalance') ?? 5000.0;
-      });
-    }
     await _getCurrentLocation();
-  }
-
-  Future<void> _saveWalletBalance() async {
-    await _prefs.setDouble('walletBalance', _walletBalance);
   }
 
   Future<void> _getCurrentLocation() async {
@@ -1425,34 +1387,16 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       return;
     }
 
-    String price = _tierInfo[_selectedCharge]!['price'] as String;
-    double priceValue = _tierInfo[_selectedCharge]!['priceValue'] as double;
-
-    // Check wallet balance
-    if (_walletBalance < priceValue) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Insufficient credit — need $price, have ₹${_walletBalance.toStringAsFixed(0)}'),
-        ),
-      );
-      return;
-    }
-
     // No confirm dialog: the hold-to-send button is the confirmation.
 
     if (!mounted) return;
     setState(() => _isSendingAlert = true);
 
-    bool walletDeducted = false;
-    String? alertId;
-
     try {
-      // 1. Create the order. The server also checks a hospital is in range
-      //    before taking any payment.
+      // 1. Create the alert. The server also checks a hospital is in range.
       final message = _messageController.text.trim();
       final orderResponse = await _api.createPaymentOrder(
-        tier: _selectedCharge,
+        tier: 2, // ignored while alerts are free (the server picks the reach)
         latitude: _userLocation!.latitude,
         longitude: _userLocation!.longitude,
         symptoms: _selectedSymptoms.join(', '),
@@ -1465,79 +1409,20 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       }
 
       final data = orderResponse.data as Map;
-      alertId = data['alertId'] as String;
-      final orderId = data['order']['id'] as String;
-      final amountPaise = (data['order']['amount'] as num?)?.toInt() ?? 0;
-      final keyId = (data['razorpayKeyId'] as String?) ?? '';
-      final isMockGateway = data['mockGateway'] == true ||
-          keyId == 'test_key' ||
-          orderId.startsWith('order_mock_');
+      final alertId = data['alertId'] as String;
 
-      // 2. Pay.
-      if (!isMockGateway) {
-        // Real payment gateway configured — open Razorpay checkout.
-        final user = AuthService().currentLoggedInUser;
-        final payment = await _startRazorpayCheckout(
-          keyId: keyId,
-          orderId: orderId,
-          amountPaise: amountPaise,
-          email: user?.email ?? '',
-          name: user?.name ?? 'Élan User',
-        );
-
-        if (!payment.success) {
-          if (mounted) {
-            await _showDispatchFailed(
-                'Payment was not completed: ${payment.error ?? 'cancelled'}');
-          }
-          return;
-        }
-
-        final verify = await _api.verifyPayment(
-          orderId: orderId,
-          paymentId: payment.paymentId!,
-          signature: payment.signature!,
-          alertId: alertId,
-        );
-
-        if (!verify.success) {
-          if (mounted) await _showDispatchFailed(verify.error);
-          return;
-        }
-      } else {
-        // Mock gateway (development: no Razorpay keys) — settle via the demo
-        // wallet credit.
-        if (_walletBalance < priceValue) {
-          if (mounted) {
-            await _showDispatchFailed(
-                'Insufficient demo credit — need $price, have ₹${_walletBalance.toStringAsFixed(0)}');
-          }
-          return;
-        }
-        setState(() => _walletBalance -= priceValue);
-        await _saveWalletBalance();
-        walletDeducted = true;
-
-        final verify = await _api.verifyPayment(
-          orderId: orderId,
-          paymentId: 'wallet_${DateTime.now().millisecondsSinceEpoch}',
-          signature: 'wallet_payment',
-          alertId: alertId,
-        );
-        if (!verify.success) {
-          await _refundWallet(priceValue);
-          walletDeducted = false;
-          if (mounted) await _showDispatchFailed(verify.error);
-          return;
-        }
+      // 2. Pay — only when the server has paid alerts switched on
+      //    (ALERTS_FREE=false). Free alerts go straight to dispatch.
+      if (data['paymentRequired'] == true) {
+        final paid = await _payForAlert(data, alertId);
+        if (!paid) return;
       }
 
-      // 3. Dispatch. Payment is settled from here on, so a failure offers a
+      // 3. Dispatch. Anything already paid stays paid, so a failure offers a
       //    retry of the same alert rather than a second charge.
       await _dispatchPaidAlert(alertId);
     } catch (e) {
       debugPrint('Emergency dispatch error: $e');
-      if (walletDeducted) await _refundWallet(priceValue);
       if (!mounted) return;
       await _showDispatchFailed('Unexpected error: $e');
     } finally {
@@ -1545,13 +1430,53 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     }
   }
 
-  Future<void> _refundWallet(double amount) async {
-    if (mounted) {
-      setState(() => _walletBalance += amount);
+  /// Paid-alert mode: Razorpay checkout (or the development mock gateway),
+  /// then server-side verification. Returns false when the alert must stop.
+  Future<bool> _payForAlert(Map data, String alertId) async {
+    final orderId = data['order']['id'] as String;
+    final amountPaise = (data['order']['amount'] as num?)?.toInt() ?? 0;
+    final keyId = (data['razorpayKeyId'] as String?) ?? '';
+    final isMockGateway = data['mockGateway'] == true ||
+        keyId == 'test_key' ||
+        orderId.startsWith('order_mock_');
+
+    String paymentId;
+    String signature;
+    if (isMockGateway) {
+      // Development server without Razorpay keys: it accepts any payment.
+      paymentId = 'dev_${DateTime.now().millisecondsSinceEpoch}';
+      signature = 'dev';
     } else {
-      _walletBalance += amount;
+      final user = AuthService().currentLoggedInUser;
+      final payment = await _startRazorpayCheckout(
+        keyId: keyId,
+        orderId: orderId,
+        amountPaise: amountPaise,
+        email: user?.email ?? '',
+        name: user?.name ?? 'Élan User',
+      );
+      if (!payment.success) {
+        if (mounted) {
+          await _showDispatchFailed(
+              'Payment was not completed: ${payment.error ?? 'cancelled'}');
+        }
+        return false;
+      }
+      paymentId = payment.paymentId!;
+      signature = payment.signature!;
     }
-    await _saveWalletBalance();
+
+    final verify = await _api.verifyPayment(
+      orderId: orderId,
+      paymentId: paymentId,
+      signature: signature,
+      alertId: alertId,
+    );
+    if (!verify.success) {
+      if (mounted) await _showDispatchFailed(verify.error);
+      return false;
+    }
+    return true;
   }
 
   /// Opens the Razorpay checkout and resolves once the sheet is closed.
@@ -1633,13 +1558,54 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               eyebrow: 'SOS response',
               title: 'Emergency',
               onBack: () => Navigator.of(context).pop(),
-              trailing: _WalletPill(balance: _walletBalance),
+              // Always one tap from emergency services (Play health policy)
+              trailing: FilledButton.icon(
+                onPressed: () =>
+                    PhoneService.dial(context, PhoneService.emergencyNumber),
+                icon: const Icon(Icons.call_rounded, size: 18),
+                label: const Text('112'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.emergency,
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+              ),
             ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(
                     AppSpace.xl, AppSpace.sm, AppSpace.xl, 32),
                 children: [
+                  // Standing reminder (Play health policy): Élan works
+                  // alongside emergency services, not instead of them.
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.emergencySoft,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline_rounded,
+                            size: 18, color: AppColors.emergency),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'If this is life-threatening, call 112 first. '
+                            'Élan alerts nearby hospitals but cannot '
+                            'guarantee a response.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.textPrimary),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.lg),
                   // Location
                   SectionHeader(
                     eyebrow: 'Navigator',
@@ -1919,110 +1885,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: AppSpace.xxl),
-
-                  // Tier selection
-                  SectionHeader(
-                    eyebrow: 'Coverage plan',
-                    title: 'Alert coverage',
-                  ),
-                  const SizedBox(height: AppSpace.md),
-                  Row(
-                    children: [1, 2, 3].map((charge) {
-                      final isSelected = _selectedCharge == charge;
-                      final info = _tierInfo[charge]!;
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() => _selectedCharge = charge),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
-                            margin:
-                                EdgeInsets.only(right: charge == 3 ? 0 : 10),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? AppColors.emergency.withValues(alpha: 0.1)
-                                  : AppColors.surface,
-                              borderRadius: BorderRadius.circular(AppRadius.md),
-                              border: Border.all(
-                                color: isSelected
-                                    ? AppColors.emergency
-                                    : AppColors.hairline,
-                                width: isSelected ? 1.6 : 1,
-                              ),
-                            ),
-                            child: Stack(
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '₹$charge',
-                                      style: TextStyle(
-                                        fontFamily: AppFonts.display,
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.w700,
-                                        fontVariations: AppFonts.w700,
-                                        color: isSelected
-                                            ? AppColors.textPrimary
-                                            : AppColors.textSecondary,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${info['hospitals']}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium,
-                                    ),
-                                    Text(
-                                      info['hospitals'] == 1
-                                          ? 'hospital'
-                                          : 'hospitals',
-                                      style:
-                                          Theme.of(context).textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                                if (isSelected)
-                                  Positioned(
-                                    top: 0,
-                                    right: 0,
-                                    child: Container(
-                                      width: 18,
-                                      height: 18,
-                                      decoration: const BoxDecoration(
-                                        color: AppColors.emergency,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.check_rounded,
-                                          size: 13, color: Colors.white),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Icon(Icons.calculate_rounded,
-                          size: 14, color: AppColors.textMuted),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          // Tiers are a flat price, not per hospital
-                          'Flat charge ${_tierInfo[_selectedCharge]!['price']} — '
-                          'alerts up to $_tierHospitalCount nearest '
-                          '${_tierHospitalCount == 1 ? 'hospital' : 'hospitals'}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -2037,9 +1899,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               ),
               child: HoldToSendButton(
                 label: 'Hold to send alert',
-                caption: '${_tierInfo[_selectedCharge]!['price']} · up to '
-                    '$_tierHospitalCount '
-                    '${_tierHospitalCount == 1 ? 'hospital' : 'hospitals'}',
+                caption: 'Free · alerts the nearest hospitals',
                 loading: _isSendingAlert,
                 loadingLabel: 'Sending alert…',
                 onConfirmed: _isSendingAlert ? null : _sendAlertToHospitals,
@@ -2047,41 +1907,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _WalletPill extends StatelessWidget {
-  const _WalletPill({required this.balance});
-  final double balance;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.account_balance_wallet_rounded,
-              size: 15, color: AppColors.success),
-          const SizedBox(width: 6),
-          Text(
-            '₹${balance.toStringAsFixed(0)}',
-            style: const TextStyle(
-              fontFamily: AppFonts.display,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              fontVariations: AppFonts.w700,
-              color: AppColors.success,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -2376,7 +2201,7 @@ class _AlertCard extends StatelessWidget {
                         const SizedBox(width: 4),
                         Flexible(
                           child: Text(
-                            '$time · Tier ${_first.chargeLevels} · ₹${_first.chargeLevels}',
+                            time,
                             style: textTheme.bodySmall,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -3699,6 +3524,12 @@ class _ReceiverFacilityScreenState extends State<ReceiverFacilityScreen> {
                                 style: TextButton.styleFrom(foregroundColor: AppColors.emergency),
                                 child: const Text('Delete account'),
                               ),
+                              TextButton(
+                                onPressed: () =>
+                                    PhoneService.openUrl(context, ApiService.privacyPolicyUrl),
+                                style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+                                child: const Text('Privacy policy'),
+                              ),
                             ],
                           ),
                         ),
@@ -4093,6 +3924,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           onPressed: () => open(context, const DeleteAccountScreen()),
                           style: TextButton.styleFrom(foregroundColor: AppColors.emergency),
                           child: const Text('Delete account'),
+                        ),
+                        TextButton(
+                          onPressed: () =>
+                              PhoneService.openUrl(context, ApiService.privacyPolicyUrl),
+                          style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+                          child: const Text('Privacy policy'),
                         ),
                       ],
                     ),

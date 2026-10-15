@@ -6,6 +6,8 @@ const Hospital = require('../models/Hospital');
 const config = require('../config/config');
 const { authMiddleware, requireRole } = require('../middleware/auth');
 const { isValidCoordinates } = require('../utils/validation');
+const PasswordReset = require('../models/PasswordReset');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -62,7 +64,10 @@ function signToken(user) {
             userId: user.id,
             email: user.email,
             role: user.role || 'member',
-            hospitalId: user.hospital_id || null
+            hospitalId: user.hospital_id || null,
+            // Password-change stamp: a later password change invalidates
+            // this token (middleware/auth.js)
+            pca: user.password_changed_at || null
         },
         config.jwtSecret,
         { expiresIn: '7d' }
@@ -275,6 +280,89 @@ router.put('/me', authMiddleware, (req, res) => {
         res.status(500).json({ error: 'Failed to update profile' });
     }
 });
+
+// ==================== PASSWORD RESET ====================
+
+const RESET_SENT_MESSAGE =
+    'If an account exists for that email, we have sent it a 6-digit code. It expires in 15 minutes.';
+
+// POST /api/auth/forgot-password — email a one-time reset code.
+// Always answers the same way, so it can't be used to discover accounts.
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body || {};
+        if (!isNonEmptyString(email) || !EMAIL_PATTERN.test(email.trim())) {
+            return res.status(400).json({ error: 'A valid email address is required' });
+        }
+
+        const user = User.findByEmail(email.trim().toLowerCase());
+        if (user) {
+            const code = PasswordReset.issue(user.id);
+            const result = await notificationService.sendEmail(
+                user.email,
+                'Your Élan password reset code',
+                passwordResetEmail(user.name, code)
+            );
+            // Without SMTP (local development) the email is only logged, so
+            // print the code where the developer can see it. Never in production.
+            if (result.mock && !config.isProduction && process.env.NODE_ENV !== 'test') {
+                console.log(`🔑 [Dev] Password reset code for ${user.email}: ${code}`);
+            }
+        }
+
+        res.json({ success: true, message: RESET_SENT_MESSAGE });
+    } catch (error) {
+        console.error('Forgot password error:', error);
+        res.status(500).json({ error: 'Could not start the password reset' });
+    }
+});
+
+// POST /api/auth/reset-password — set a new password with the emailed code.
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { email, code, password } = req.body || {};
+        if (!isNonEmptyString(email) || !isNonEmptyString(code)) {
+            return res.status(400).json({ error: 'Email and code are required' });
+        }
+        if (typeof password !== 'string' || password.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+
+        const user = User.findByEmail(email.trim().toLowerCase());
+        if (!user || !PasswordReset.consume(user.id, code.trim())) {
+            return res.status(400).json({
+                error: 'That code is incorrect or has expired. Request a new one.'
+            });
+        }
+
+        const passwordHash = await bcrypt.hash(password, 10);
+        User.updatePassword(user.id, passwordHash);
+        res.json({
+            success: true,
+            message: 'Password updated. Sign in with your new password.'
+        });
+    } catch (error) {
+        console.error('Reset password error:', error);
+        res.status(500).json({ error: 'Could not reset the password' });
+    }
+});
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function passwordResetEmail(name, code) {
+    return `
+    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 520px; margin: 0 auto; color: #0B2E47;">
+      <h2 style="margin: 0 0 12px;">Reset your Élan password</h2>
+      <p>Hi ${escapeHtml(name)},</p>
+      <p>Use this code in the Élan app to set a new password:</p>
+      <p style="font-size: 32px; font-weight: bold; letter-spacing: 6px; margin: 16px 0;">${code}</p>
+      <p>It expires in 15 minutes. If you didn't ask to reset your password, you can ignore this email; your password stays the same.</p>
+    </div>`;
+}
 
 // ==================== ACCOUNT DELETION ====================
 // Google Play requires apps with sign-up to let users delete their account

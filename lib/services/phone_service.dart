@@ -1,4 +1,4 @@
-// Élan — Open the phone dialler.
+// Élan — Open the phone dialler or a web link.
 // Backed by the "elan/phone" platform channel (MainActivity.kt / AppDelegate),
 // so no plugin dependency is needed.
 
@@ -28,6 +28,25 @@ class PhoneService {
     await Clipboard.setData(ClipboardData(text: number));
     messenger?.showSnackBar(
       SnackBar(content: Text('Could not open the dialler. $number copied.')),
+    );
+  }
+
+  /// Open [url] in the browser (privacy policy, account deletion page).
+  /// Falls back to copying the link, like [dial].
+  static Future<void> openUrl(BuildContext context, String url) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    var opened = false;
+    try {
+      opened = await _channel.invokeMethod<bool>('openUrl', {'url': url}) ??
+          false;
+    } catch (_) {
+      opened = false;
+    }
+    if (opened) return;
+
+    await Clipboard.setData(ClipboardData(text: url));
+    messenger?.showSnackBar(
+      SnackBar(content: Text('Could not open the browser. Link copied: $url')),
     );
   }
 }

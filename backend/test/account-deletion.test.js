@@ -133,5 +133,17 @@ test('the public deletion page is served', async () => {
     const res = await fetch(`${baseUrl}/delete-account`);
     assert.strictEqual(res.status, 200);
     assert.match(res.headers.get('content-type'), /text\/html/);
-    assert.match(await res.text(), /Delete your Élan account/);
+    const html = await res.text();
+    assert.match(html, /Delete your Élan account/);
+    assert.doesNotMatch(html, /\{\{/); // every placeholder filled
+});
+
+test('the privacy policy is served with its placeholders filled', async () => {
+    const res = await fetch(`${baseUrl}/privacy`);
+    assert.strictEqual(res.status, 200);
+    assert.match(res.headers.get('content-type'), /text\/html/);
+    const html = await res.text();
+    assert.match(html, /Privacy Policy/);
+    assert.match(html, /not an emergency service/);
+    assert.doesNotMatch(html, /\{\{/);
 });

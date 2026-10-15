@@ -32,7 +32,9 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 - **Live dispatch tracker** — After sending, follow the alert from "sent" to "help is on the way": a running timer, a timeline, the accepting hospital's ETA countdown, and one-tap calls to hospitals or 112.
 - **Tiered response** — Choose how wide the net goes: 1, 3, or up to 10 nearby hospitals notified per alert.
 - **Location-aware hospitals** — GPS-driven search surfaces verified hospitals ranked by distance, backed by a live hospital database on the backend.
-- **Secure payments** — Flat tiered alert pricing through the **Razorpay** gateway (a demo wallet stands in during local development). You are charged only once the server confirms a hospital is in range.
+- **Free alerts** — Sending an alert costs nothing and needs no payment step (`ALERTS_FREE`, on by default). Paid tiers through Razorpay remain available behind `ALERTS_FREE=false`; check Google Play's billing policy before enabling them in a Play build.
+- **Account recovery and control** — Forgot-password reset by emailed 6-digit code (signs out every other session), and account deletion in the app or on the web.
+- **Safety and privacy** — A first-launch notice that Élan does not replace 112, a standing 112 button on the Emergency screen, and a privacy policy served at `/privacy`.
 - **Hospital triage desk** — A console for hospital staff: unanswered alerts first, a live "waiting" timer that turns red after 2 minutes, the patient's own message, and one-tap accept with an arrival estimate (5/10/15/20 min) the patient sees immediately.
 - **Hospital alert feed** — Track every alert you've sent, its status, and which hospitals acknowledged it.
 - **Patient records** — Manage patient profiles with admission details, blood type, room, and condition.
@@ -142,8 +144,15 @@ flutter test
 ### Production checklist
 
 - The backend **refuses to start** with `NODE_ENV=production` unless
-  `JWT_SECRET`, `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are set. Mock
-  payments are a development-only feature.
+  `JWT_SECRET` and `SUPPORT_EMAIL` are set (plus `RAZORPAY_KEY_ID` /
+  `RAZORPAY_KEY_SECRET` if paid alerts are switched on). Mock payments are a
+  development-only feature.
+- Configure SMTP (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`): password-reset codes
+  are emailed. Without SMTP, development servers print the code to the console.
+- Public pages for the Play Console: `/privacy` (privacy policy) and
+  `/delete-account` (web account deletion). See
+  [docs/play-store/PLAY_CONSOLE_GUIDE.md](docs/play-store/PLAY_CONSOLE_GUIDE.md)
+  for the Data safety answers and store listing text.
 - Android release signing reads `android/key.properties` (git-ignored). Copy
   [`android/key.properties.example`](android/key.properties.example) and fill
   it in. Without it, release builds fall back to debug signing.

@@ -15,13 +15,16 @@ router.post('/create-order', authMiddleware, async (req, res) => {
         const { tier, latitude, longitude, symptoms, message } = req.body;
 
         // Explicit null checks: 0 is a valid latitude/longitude
-        if (tier == null || latitude == null || longitude == null) {
+        if (latitude == null || longitude == null || (!config.alertsFree && tier == null)) {
             return res.status(400).json({
-                error: 'Tier, latitude, and longitude are required'
+                error: config.alertsFree
+                    ? 'Latitude and longitude are required'
+                    : 'Tier, latitude, and longitude are required'
             });
         }
 
-        const chargeTier = parseInt(tier);
+        // Free alerts use a fixed reach; paid alerts let the sender choose.
+        const chargeTier = config.alertsFree ? config.freeAlertTier : parseInt(tier);
         if (![1, 2, 3].includes(chargeTier)) {
             return res.status(400).json({ error: 'Invalid tier. Must be 1, 2, or 3' });
         }
@@ -56,6 +59,33 @@ router.post('/create-order', authMiddleware, async (req, res) => {
             userLongitude: lng
         });
 
+        const hospitalSummary = {
+            level: chargeTier,
+            hospitalCount,
+            hospitals: hospitals.map(h => ({
+                id: h.id,
+                name: h.name,
+                distanceKm: Math.round(h.distance_km * 100) / 100
+            }))
+        };
+
+        // Free alerts: record a settled ₹0 payment so /alerts/send can go
+        // straight ahead. No checkout, no wallet.
+        if (config.alertsFree) {
+            const payment = Payment.create({
+                alertId: alert.id,
+                razorpayOrderId: `free_${alert.id}`,
+                amountPaise: 0
+            });
+            Payment.updateStatus(payment.id, 'completed', 'free');
+            return res.json({
+                success: true,
+                alertId: alert.id,
+                paymentRequired: false,
+                tier: hospitalSummary
+            });
+        }
+
         // Create Razorpay order
         const order = await paymentService.createOrder(amountPaise, alert.id, {
             tier: chargeTier,
@@ -72,21 +102,14 @@ router.post('/create-order', authMiddleware, async (req, res) => {
         res.json({
             success: true,
             alertId: alert.id,
+            paymentRequired: true,
             order: {
                 id: order.id,
                 amount: amountPaise,
                 currency: 'INR',
                 amountDisplay: `₹${amountPaise / 100}`
             },
-            tier: {
-                level: chargeTier,
-                hospitalCount,
-                hospitals: hospitals.map(h => ({
-                    id: h.id,
-                    name: h.name,
-                    distanceKm: Math.round(h.distance_km * 100) / 100
-                }))
-            },
+            tier: hospitalSummary,
             razorpayKeyId: paymentService.config.keyId || 'test_key',
             mockGateway: paymentService.isMockMode()
         });

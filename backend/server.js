@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const config = require('./config/config');
@@ -105,6 +106,24 @@ async function seedReceiverStaff() {
     }
 }
 
+// Public pages are plain HTML with a few placeholders filled from config
+function escapeHtml(value) {
+    return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function sendPage(res, file) {
+    const email = config.supportEmail;
+    const emailLink = email
+        ? `<a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>`
+        : '<em>not configured: set SUPPORT_EMAIL on the server</em>';
+    const html = fs.readFileSync(path.join(__dirname, 'public', file), 'utf8')
+        .replaceAll('{{ORG}}', escapeHtml(config.organizationName))
+        .replaceAll('{{SUPPORT_EMAIL_LINK}}', emailLink)
+        .replaceAll('{{EFFECTIVE_DATE}}', escapeHtml(config.privacyEffectiveDate));
+    res.type('html').send(html);
+}
+
 // Create Express app
 function createApp() {
     const app = express();
@@ -125,6 +144,8 @@ function createApp() {
     app.use('/api/auth/register', authLimiter);
     app.use('/api/auth/login', authLimiter);
     app.use('/api/auth/delete-account', authLimiter);
+    app.use('/api/auth/forgot-password', authLimiter);
+    app.use('/api/auth/reset-password', authLimiter);
     app.use('/api/alerts/send', emergencyLimiter);
     app.use('/api', apiLimiter);
 
@@ -139,9 +160,11 @@ function createApp() {
 
     // Public account-deletion page (required by Google Play for apps with
     // sign-up). Its URL goes in the Play Console's Data safety form.
-    app.get('/delete-account', (req, res) => {
-        res.sendFile(path.join(__dirname, 'public', 'delete-account.html'));
-    });
+    app.get('/delete-account', (req, res) => sendPage(res, 'delete-account.html'));
+
+    // Privacy policy (required by Google Play; its URL goes in the Play
+    // Console and is linked from the app)
+    app.get('/privacy', (req, res) => sendPage(res, 'privacy.html'));
 
     // API Routes
     app.use('/api/auth', authRoutes);

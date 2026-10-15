@@ -2,6 +2,14 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const User = require('../models/User');
 
+/// Every token records the password-change stamp it was issued under
+/// (the `pca` claim; see signToken in routes/auth.js). Changing the password changes
+/// the account's stamp, so every older token stops matching. (Tokens from
+/// before this existed carry none, matching accounts never reset.)
+function issuedBeforePasswordChange(decoded, user) {
+    return (decoded.pca ?? null) !== (user.password_changed_at ?? null);
+}
+
 function authMiddleware(req, res, next) {
     const authHeader = req.headers.authorization;
 
@@ -20,8 +28,13 @@ function authMiddleware(req, res, next) {
         const decoded = jwt.verify(token, config.jwtSecret);
         // Tokens outlive accounts: once an account is deleted its token must
         // stop working immediately, not when it expires days later.
-        if (!User.findById(decoded.userId)) {
+        const user = User.findById(decoded.userId);
+        if (!user) {
             return res.status(401).json({ error: 'Account no longer exists' });
+        }
+        // A password change (e.g. a reset) signs out every older session.
+        if (issuedBeforePasswordChange(decoded, user)) {
+            return res.status(401).json({ error: 'Password changed. Please sign in again.' });
         }
         req.user = decoded;
         next();
@@ -48,7 +61,8 @@ function optionalAuth(req, res, next) {
 
     try {
         const decoded = jwt.verify(parts[1], config.jwtSecret);
-        if (User.findById(decoded.userId)) req.user = decoded;
+        const user = User.findById(decoded.userId);
+        if (user && !issuedBeforePasswordChange(decoded, user)) req.user = decoded;
     } catch (error) {
         // Ignore errors for optional auth
     }

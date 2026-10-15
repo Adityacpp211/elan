@@ -15,6 +15,16 @@ import Flutter
       let channel = FlutterMethodChannel(
         name: "elan/phone", binaryMessenger: controller.binaryMessenger)
       channel.setMethodCallHandler { call, result in
+        // "openUrl": open a web page (privacy policy) in Safari
+        if call.method == "openUrl",
+          let args = call.arguments as? [String: Any],
+          let raw = args["url"] as? String,
+          let url = URL(string: raw),
+          url.scheme == "http" || url.scheme == "https"
+        {
+          UIApplication.shared.open(url) { opened in result(opened) }
+          return
+        }
         guard call.method == "dial",
           let args = call.arguments as? [String: Any],
           let raw = args["number"] as? String

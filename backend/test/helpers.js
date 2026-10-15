@@ -2,10 +2,14 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const jwt = require('jsonwebtoken');
+// Must be set before requiring config or the server (both read env at load)
+process.env.NODE_ENV = 'test';
+// Most suites exercise the paid (Razorpay) flow, which is still supported.
+// A suite can opt into free alerts by setting ALERTS_FREE before requiring
+// this file (each test file runs in its own process).
+if (process.env.ALERTS_FREE === undefined) process.env.ALERTS_FREE = 'false';
 const config = require('../config/config');
 
-// Must be set before requiring the server so the DB module picks up the temp path
-process.env.NODE_ENV = 'test';
 
 // Silence app logging so it cannot interfere with the test-runner IPC stream
 for (const method of ['log', 'info', 'warn', 'error']) {

@@ -138,6 +138,27 @@ class ApiService {
       auth: true, fallbackError: 'Failed to fetch profile');
 
   /// Update current user profile (name / phone)
+  /// Public pages served by the backend (also entered in the Play Console).
+  static String get privacyPolicyUrl => '$baseUrl/privacy';
+  static String get deleteAccountUrl => '$baseUrl/delete-account';
+
+  /// Email a one-time password-reset code. The server answers the same way
+  /// whether or not the email has an account.
+  Future<ApiResponse> requestPasswordReset(String email) =>
+      _request('POST', '/api/auth/forgot-password',
+          body: {'email': email},
+          fallbackError: 'Could not send the reset code');
+
+  /// Set a new password using the emailed code.
+  Future<ApiResponse> resetPassword({
+    required String email,
+    required String code,
+    required String password,
+  }) =>
+      _request('POST', '/api/auth/reset-password',
+          body: {'email': email, 'code': code, 'password': password},
+          fallbackError: 'Could not reset the password');
+
   /// Permanently delete the signed-in account. The server re-checks
   /// [password]; a wrong one comes back as 403 (not 401), so it is reported
   /// to the user instead of being treated as an expired session.

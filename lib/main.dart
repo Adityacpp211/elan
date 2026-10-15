@@ -8,6 +8,7 @@ import 'dart:async';
 import 'models.dart';
 import 'theme.dart';
 import 'screens.dart';
+import 'disclaimer_screen.dart';
 import 'services/api_service.dart';
 import 'services/connection_status.dart';
 
@@ -140,11 +141,15 @@ class _SplashScreenState extends State<SplashScreen>
     });
   }
 
-  void _goHome() {
+  Future<void> _goHome() async {
     if (!mounted) return;
-    final destination = AuthService().currentLoggedInUser != null
+    final home = AuthService().currentLoggedInUser != null
         ? homeForSession()
         : const LoginScreen() as Widget;
+    // First launch: the safety notice comes before anything else.
+    final accepted = await DisclaimerScreen.isAccepted();
+    if (!mounted) return;
+    final destination = accepted ? home : DisclaimerScreen(next: home);
 
     Navigator.pushReplacement(
       context,
