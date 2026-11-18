@@ -57,3 +57,6 @@ key.properties
 
 # Built APKs for sharing
 dist/
+
+# Video render scratch (frames, browser profile)
+video/.work/

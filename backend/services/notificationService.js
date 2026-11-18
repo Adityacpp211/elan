@@ -1,4 +1,6 @@
-const admin = require('firebase-admin');
+// firebase-admin v13+ only has the modular API
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getMessaging } = require('firebase-admin/messaging');
 const nodemailer = require('nodemailer');
 const config = require('../config/config');
 const fs = require('fs');
@@ -33,8 +35,8 @@ function initializeFirebase() {
 
         const serviceAccount = require(serviceAccountPath);
 
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount)
+        initializeApp({
+            credential: cert(serviceAccount)
         });
 
         isInitialized = true;
@@ -116,7 +118,7 @@ async function sendToDevice(fcmToken, title, body, data = {}) {
             token: fcmToken
         };
 
-        const response = await admin.messaging().send(message);
+        const response = await getMessaging().send(message);
         console.log('✅ FCM notification sent:', response);
         return { success: true, messageId: response };
     } catch (error) {
@@ -145,7 +147,7 @@ async function sendToTopic(topic, title, body, data = {}) {
             topic: topic
         };
 
-        const response = await admin.messaging().send(message);
+        const response = await getMessaging().send(message);
         console.log(`✅ FCM topic notification sent to ${topic}:`, response);
         return { success: true, messageId: response };
     } catch (error) {
@@ -162,7 +164,7 @@ async function subscribeToTopic(fcmToken, topic) {
     }
 
     try {
-        const response = await admin.messaging().subscribeToTopic(fcmToken, topic);
+        const response = await getMessaging().subscribeToTopic(fcmToken, topic);
         console.log(`✅ Subscribed to topic ${topic}:`, response);
         return { success: true };
     } catch (error) {

@@ -1,0 +1,146 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Élan — encoder</title></head>
+<body style="margin:0;background:#000">
+<canvas id="cv" width="1080" height="1920"></canvas>
+<script>
+// Plays the captured frames in real time against a synthesised soundtrack and
+// records both into one MP4 with MediaRecorder. Driven by record.mjs.
+const FPS = 30;
+
+// ------------------------------------------------------------------ soundtrack
+async function synth(events, duration) {
+  const SR = 48000, ctx = new OfflineAudioContext(2, Math.ceil((duration + .6) * SR), SR);
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3;
+  const master = ctx.createGain(); master.gain.value = .9; comp.connect(master); master.connect(ctx.destination);
+  // reverb send from a generated impulse
+  const ir = ctx.createBuffer(2, SR * 3, SR);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3.2); }
+  const verb = ctx.createConvolver(); verb.buffer = ir; const vg = ctx.createGain(); vg.gain.value = .35; verb.connect(vg); vg.connect(comp);
+  const noise = ctx.createBuffer(1, SR * 2, SR); { const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+
+  const out = (node, gain = 1, pan = 0, send = 0) => {
+    const g = ctx.createGain(); g.gain.value = gain; const p = ctx.createStereoPanner(); p.pan.value = pan;
+    node.connect(g); g.connect(p); p.connect(comp);
+    if (send) { const s = ctx.createGain(); s.gain.value = send; p.connect(s); s.connect(verb); }
+    return g;
+  };
+  const env = (g, t, a, peak, d) => { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(.0001, t + a + d); };
+  const tone = (t, f, { type = 'sine', a = .005, d = .5, gain = .1, f2 = null, pan = 0, send = 0 } = {}) => {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + a + d);
+    const g = ctx.createGain(); env(g, t, a, 1, d); o.connect(g); out(g, gain, pan, send); o.start(t); o.stop(t + a + d + .05);
+  };
+  const burst = (t, { d = .02, f = 3000, q = 1.2, gain = .05, pan = 0, f2 = null, type = 'bandpass', a = .001, send = 0 } = {}) => {
+    const s = ctx.createBufferSource(); s.buffer = noise; const bp = ctx.createBiquadFilter(); bp.type = type; bp.frequency.setValueAtTime(f, t); bp.Q.value = q;
+    if (f2) bp.frequency.exponentialRampToValueAtTime(f2, t + a + d);
+    const g = ctx.createGain(); env(g, t, a, 1, d); s.connect(bp); bp.connect(g); out(g, gain, pan, send);
+    s.start(t, Math.random() * 1.5); s.stop(t + a + d + .05);
+  };
+  const thump = (t, gain = .3, f = 85) => tone(t, f, { d: .38, f2: 40, gain });
+
+  // ambient pad: one chord per scene, crossfaded at the cuts
+  const cuts = events.filter(e => e.type === 'cut');
+  const CH = { paper: [110, 164.81, 246.94, 329.63], dark: [73.42, 110, 174.61, 220] };
+  cuts.forEach((c, i) => {
+    const t0 = c.t, t1 = i + 1 < cuts.length ? cuts[i + 1].t : duration;
+    const last = i === cuts.length - 1;
+    const notes = last ? [87.31, 130.81, 220, 261.63] : CH[c.surface];
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = c.surface === 'dark' ? 520 : 820;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(1, t0 + .5);
+    g.gain.setValueAtTime(1, Math.max(t0 + .5, t1 - .3)); g.gain.linearRampToValueAtTime(0, t1 + .4);
+    lp.connect(g); out(g, .05, 0, .5);
+    notes.forEach((f, k) => [-4, 4].forEach(dt => {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f; o.detune.value = dt + k;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = .13 + k * .05; const lg = ctx.createGain(); lg.gain.value = .35;
+      const og = ctx.createGain(); og.gain.value = .6; lfo.connect(lg); lg.connect(og.gain); o.connect(og); og.connect(lp);
+      o.start(t0); o.stop(t1 + .5); lfo.start(t0); lfo.stop(t1 + .5);
+    }));
+    if (c.chapterStart && i > 0) { thump(t0, .22, 70); burst(t0, { d: .6, f: 300, f2: 90, type: 'lowpass', gain: .05 }); }
+  });
+
+  for (const e of events) {
+    const t = e.t;
+    switch (e.type) {
+      case 'key': burst(t, { d: .012 + Math.random() * .01, f: 2400 + Math.random() * 2200, q: 2, gain: .045 + Math.random() * .025, pan: Math.random() * .4 - .2 }); break;
+      case 'land':
+        burst(t - .28, { a: .26, d: .08, f: 900, f2: 4000, q: .7, gain: .035, send: .3 });
+        thump(t, .26);
+        if (e.color.includes('red')) tone(t, 155.56, { type: 'triangle', d: 1.2, gain: .05, send: .4 });
+        if (e.color.includes('blue')) tone(t, 880, { d: 1.6, gain: .05, send: .6 });
+        break;
+      case 'heart': thump(t, .42, 62); thump(t + .2, .28, 58); break;
+      case 'strike': burst(t, { a: .01, d: .3, f: 1400, f2: 700, q: 1, gain: .09, pan: .1 }); break;
+      case 'rise': {
+        const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(196, t); o.frequency.exponentialRampToValueAtTime(392, t + e.d);
+        const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(400, t); lp.frequency.exponentialRampToValueAtTime(2400, t + e.d);
+        const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + e.d); g.gain.linearRampToValueAtTime(0, t + e.d + .05);
+        o.connect(lp); lp.connect(g); out(g, .05); o.start(t); o.stop(t + e.d + .1); break;
+      }
+      case 'ping': tone(t, 1318.5, { d: .9, gain: .08, send: .6 }); tone(t, 1975.5, { d: .7, gain: .04, send: .6 }); break;
+      case 'tick2': burst(t, { d: .03, f: 1800, gain: .1 }); break;
+      case 'blip': tone(t, 1046.5, { d: .14, gain: .06, send: .3 }); break;
+      case 'stamp': thump(t, .5, 75); burst(t, { d: .05, f: 900, q: .6, gain: .25 }); break;
+      case 'whoosh': burst(t, { a: .25, d: .35, f: 400, f2: 3200, q: .8, gain: .06, send: .3 }); break;
+      case 'alert': tone(t, 659.25, { d: .14, gain: .05 }); tone(t + .16, 880, { d: .2, gain: .05, send: .3 }); break;
+      case 'alarm': [0, .3, .6].forEach(k => tone(t + k, k === .3 ? 196 : 233.08, { type: 'triangle', d: .26, gain: .07 })); break;
+      case 'chime': tone(t, 783.99, { d: .9, gain: .08, send: .6 }); tone(t + .13, 1174.66, { d: 1.2, gain: .07, send: .6 }); break;
+      case 'beep': tone(t, 1000, { d: .09, gain: .045 }); break;
+      case 'thud2': thump(t, .4, 70); break;
+      case 'chord': [174.61, 220, 261.63, 329.63, 440].forEach((f, k) => {
+        [1, 2, 3].forEach((hm, j) => tone(t + k * .04, f * hm, { a: .006, d: 3.6 - j, gain: [.06, .022, .01][j], send: .7, pan: (k - 2) * .15 }));
+      }); break;
+    }
+  }
+  return ctx.startRendering();
+}
+
+// ------------------------------------------------------------------ playback + recording
+async function run(frameDir, frameCount, events, duration) {
+  const buf = await synth(events, duration);
+  const cv = document.getElementById('cv'), g = cv.getContext('2d');
+  const ac = new AudioContext({ sampleRate: 48000 });
+  await ac.resume();
+  const dest = ac.createMediaStreamDestination();
+  const vtrack = cv.captureStream(0).getVideoTracks()[0];
+  const stream = new MediaStream([vtrack, dest.stream.getAudioTracks()[0]]);
+  const rec = new MediaRecorder(stream, { mimeType: 'video/mp4;codecs=avc1.640028,mp4a.40.2', videoBitsPerSecond: 9e6, audioBitsPerSecond: 192000 });
+  const chunks = []; rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+
+  const cache = new Map();
+  const name = i => `${frameDir}/f_${String(i).padStart(5, '0')}.jpg`;
+  const load = i => { if (i >= frameCount || cache.has(i)) return; const im = new Image(); im.src = name(i); cache.set(i, im.decode().then(() => im)); };
+  for (let i = 0; i < 90; i++) load(i);
+  await cache.get(0);
+  g.drawImage(await cache.get(0), 0, 0); vtrack.requestFrame();
+
+  rec.start(1000);
+  const src = ac.createBufferSource(); src.buffer = buf; src.connect(dest);
+  const T0 = ac.currentTime + .25; src.start(T0);
+  let last = 0, late = 0;
+  await new Promise(resolve => {
+    const tick = async () => {
+      const idx = Math.floor((ac.currentTime - T0) * FPS);
+      if (idx >= frameCount) return resolve();
+      if (idx > last && idx >= 0) {
+        for (let k = idx; k < idx + 90; k++) load(k);
+        const p = cache.get(idx);
+        const im = await p;
+        if (Math.floor((ac.currentTime - T0) * FPS) > idx + 1) late++;
+        g.drawImage(im, 0, 0); vtrack.requestFrame();
+        for (let k = last; k < idx; k++) cache.delete(k);
+        last = idx;
+      }
+      setTimeout(tick, 4);
+    };
+    tick();
+  });
+  await new Promise(r => setTimeout(r, 600));
+  await new Promise(r => { rec.onstop = r; rec.stop(); });
+  window.__blob = new Blob(chunks, { type: 'video/mp4' });
+  return { size: window.__blob.size, late, audioState: ac.state };
+}
+
+function readChunk(i, size) {
+  return new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(window.__blob.slice(i * size, (i + 1) * size)); });
+}
+</script>
+</body></html>

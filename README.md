@@ -91,7 +91,7 @@ Heart attacks move fast. Emergency response usually doesn't. Traditional flows r
 ### Prerequisites
 
 - [Flutter](https://docs.flutter.dev/get-started/install) `>= 3.38`
-- [Node.js](https://nodejs.org) `>= 18`
+- [Node.js](https://nodejs.org) `>= 22`
 
 ### 1. Run the backend
 
@@ -146,6 +146,8 @@ flutter test
   `JWT_SECRET` and `SUPPORT_EMAIL` are set (plus `RAZORPAY_KEY_ID` /
   `RAZORPAY_KEY_SECRET` if paid alerts are switched on). Mock payments are a
   development-only feature.
+- Deploy with the included [`backend/Dockerfile`](backend/Dockerfile) (Node 22). Mount a
+  volume at `/data`, where the SQLite database lives, and serve it over HTTPS.
 - Configure SMTP (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`): password-reset codes
   are emailed. Without SMTP, development servers print the code to the console.
 - Public pages for the Play Console: `/privacy` (privacy policy) and
